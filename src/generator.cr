@@ -34,7 +34,7 @@ module WordMage
     property mode : GenerationMode
     property max_words : Int32
     property complexity_budget : Int32?
-    property hiatus_escalation_factor : Float32
+    property hiatus_escalation_factor : Float32 = 1.0
 
     @sequential_state : Hash(String, Int32)?
 
