@@ -76,5 +76,25 @@ module WordMage::IPA
         )
             super(symbol, romanization, Category::CONSONANT)
         end
+
+        ## Returns a human-readable name describing the consonant
+        def name : String
+            features = [] of String
+            
+            features << "aspirated" if aspirated
+            features << "ejective" if ejective
+            features << "implosive" if implosive
+            features << "lateral" if lateral && !manner.to_s.includes?("Lateral")
+            
+            voicing = voiced ? "voiced" : "voiceless"
+            manner_str = manner.to_s.gsub(/([A-Z])/, " \\1").strip.downcase
+            place_str = place.to_s.gsub(/([A-Z])/, " \\1").strip.downcase
+            
+            if affricate
+                "#{features.join(" ")} #{voicing} #{place_str} affricate".strip
+            else
+                "#{features.join(" ")} #{voicing} #{place_str} #{manner_str}".strip
+            end
+        end
     end
 end

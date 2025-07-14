@@ -125,5 +125,38 @@ module WordMage::IPA
         def back_rhotic?
             back? && rhotic?
         end
+
+        ## Returns a human-readable name describing the vowel
+        def name : String
+            features = [] of String
+            
+            features << "nasalized" if nasal
+            features << "lengthened" if lengthened
+            features << "rhotic" if rhotic
+            
+            height_str = case height
+                        when .full_close? then "close"
+                        when .near_close? then "near-close"
+                        when .close_mid? then "close-mid"
+                        when .mid? then "mid"
+                        when .open_mid? then "open-mid"
+                        when .near_open? then "near-open"
+                        when .full_open? then "open"
+                        else "unknown"
+                        end
+            
+            backness_str = case backness
+                          when .full_front? then "front"
+                          when .near_front? then "near-front"
+                          when .central? then "central"
+                          when .near_back? then "near-back"
+                          when .full_back? then "back"
+                          else "unknown"
+                          end
+            
+            rounding_str = rounded ? "rounded" : "unrounded"
+            
+            "#{features.join(" ")} #{height_str} #{backness_str} #{rounding_str} vowel".strip
+        end
     end
 end

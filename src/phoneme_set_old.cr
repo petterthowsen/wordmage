@@ -7,12 +7,9 @@ module WordMage
   # with support for positional rules (e.g., certain phonemes only at word boundaries)
   # and weighted sampling for more realistic distribution.
   #
-  # Internally stores IPA::Phoneme instances for rich phonological information,
-  # but provides convenience methods that accept strings.
-  #
   # ## Example
   # ```crystal
-  # phonemes = PhonemeSet.new(["p", "t", "k"], ["a", "e", "i"])
+  # phonemes = PhonemeSet.new(Set{"p", "t", "k"}, Set{"a", "e", "i"})
   # phonemes.add_phoneme("p", :consonant, [:word_initial])
   # phonemes.add_weight("p", 2.0_f32)  # Make "p" twice as likely
   # consonant = phonemes.sample_phoneme(:consonant, :word_initial)
@@ -25,19 +22,10 @@ module WordMage
     property weights : Hash(IPA::Phoneme, Float32)
 
     # Creates a new PhonemeSet with the given consonants and vowels.
-    # Accepts arrays of strings or IPA::Phoneme instances.
-    def initialize(consonants : Array(String | IPA::Phoneme), vowels : Array(String | IPA::Phoneme))
-      @consonants = resolve_phonemes(consonants).to_set
-      @vowels = resolve_phonemes(vowels).to_set
-      @custom_groups = Hash(Char, Set(IPA::Phoneme)).new
-      @position_rules = Hash(Symbol, Set(IPA::Phoneme)).new
-      @weights = Hash(IPA::Phoneme, Float32).new
-    end
-
-    # Backward compatibility constructor for string arrays
-    def initialize(consonants : Array(String), vowels : Array(String))
-      @consonants = resolve_phonemes(consonants.map(&.as(String | IPA::Phoneme))).to_set
-      @vowels = resolve_phonemes(vowels.map(&.as(String | IPA::Phoneme))).to_set
+    # Accepts either String symbols or IPA::Phoneme instances.
+    def initialize(consonants : Set(IPA::Phoneme) | Array(String | IPA::Phoneme), vowels : Set(IPA::Phoneme) | Array(String | IPA::Phoneme))
+      @consonants = resolve_phoneme_set(consonants)
+      @vowels = resolve_phoneme_set(vowels)
       @custom_groups = Hash(Char, Set(IPA::Phoneme)).new
       @position_rules = Hash(Symbol, Set(IPA::Phoneme)).new
       @weights = Hash(IPA::Phoneme, Float32).new
@@ -45,8 +33,8 @@ module WordMage
 
     # Backward compatibility constructor for string sets
     def initialize(consonants : Set(String), vowels : Set(String))
-      @consonants = resolve_phonemes(consonants.to_a.map(&.as(String | IPA::Phoneme))).to_set
-      @vowels = resolve_phonemes(vowels.to_a.map(&.as(String | IPA::Phoneme))).to_set
+      @consonants = resolve_string_set_to_phonemes(consonants)
+      @vowels = resolve_string_set_to_phonemes(vowels)
       @custom_groups = Hash(Char, Set(IPA::Phoneme)).new
       @position_rules = Hash(Symbol, Set(IPA::Phoneme)).new
       @weights = Hash(IPA::Phoneme, Float32).new
@@ -65,7 +53,24 @@ module WordMage
     # phonemes.add_phoneme(IPA::Utils.find_phoneme("p").not_nil!, :consonant, [:word_initial])
     # ```
     def add_phoneme(phoneme : String | IPA::Phoneme, type : Symbol, positions : Array(Symbol) = [] of Symbol)
-      phoneme_instance = resolve_phoneme(phoneme)
+      phoneme_instance = resolve_to_phoneme(phoneme)
+      
+      case type
+      when :consonant
+        @consonants.add(phoneme_instance)
+      when :vowel
+        @vowels.add(phoneme_instance)
+      end
+
+      positions.each do |position|
+        @position_rules[position] ||= Set(IPA::Phoneme).new
+        @position_rules[position].add(phoneme_instance)
+      end
+    end
+
+    # Backward compatibility overload for string phonemes
+    def add_phoneme(phoneme : String, type : Symbol, positions : Array(Symbol) = [] of Symbol)
+      phoneme_instance = resolve_to_phoneme(phoneme)
       
       case type
       when :consonant
@@ -101,13 +106,13 @@ module WordMage
         raise "Symbol '#{symbol}' is reserved for consonants and vowels"
       end
 
-      phoneme_instances = resolve_phonemes(phonemes).to_set
-      @custom_groups[symbol] = phoneme_instances
+      phoneme_symbols = phonemes.map { |p| resolve_phoneme_symbol(p) }
+      @custom_groups[symbol] = phoneme_symbols.to_set
 
       # Add positional constraints for each phoneme in the group
-      phoneme_instances.each do |phoneme|
+      phoneme_symbols.each do |phoneme|
         positions.each do |position|
-          @position_rules[position] ||= Set(IPA::Phoneme).new
+          @position_rules[position] ||= Set(String).new
           @position_rules[position].add(phoneme)
         end
       end
@@ -120,7 +125,7 @@ module WordMage
     # - `position`: Optional position to filter by
     #
     # ## Returns
-    # Array of phoneme symbols from the custom group that can appear at the given position
+    # Array of phonemes from the custom group that can appear at the given position
     #
     # ## Raises
     # Raises if the custom group symbol is not defined
@@ -129,16 +134,15 @@ module WordMage
         raise "Custom group '#{symbol}' is not defined"
       end
 
-      base = @custom_groups[symbol]
+      base = @custom_groups[symbol].to_a
       if position
         if rules = @position_rules[position]?
-          filtered = base.select { |p| rules.includes?(p) }
-          filtered.map(&.symbol).to_a
+          base.select { |p| rules.includes?(p) }
         else
-          base.map(&.symbol).to_a
+          base
         end
       else
-        base.map(&.symbol).to_a
+        base
       end
     end
 
@@ -164,8 +168,8 @@ module WordMage
     # phonemes.add_weight(IPA::Utils.find_phoneme("p").not_nil!, 3.0_f32)  # Using IPA::Phoneme
     # ```
     def add_weight(phoneme : String | IPA::Phoneme, weight : Float32)
-      phoneme_instance = resolve_phoneme(phoneme)
-      @weights[phoneme_instance] = weight
+      phoneme_symbol = resolve_phoneme_symbol(phoneme)
+      @weights[phoneme_symbol] = weight
     end
 
     # Returns consonants, optionally filtered by position.
@@ -174,18 +178,17 @@ module WordMage
     # - `position`: Optional position to filter by (e.g., `:word_initial`)
     #
     # ## Returns
-    # Array of consonant symbols that can appear at the given position
+    # Array of consonant strings that can appear at the given position
     def get_consonants(position : Symbol? = nil) : Array(String)
-      base = @consonants
+      base = @consonants.to_a
       if position
         if rules = @position_rules[position]?
-          filtered = base.select { |p| rules.includes?(p) }
-          filtered.map(&.symbol).to_a
+          base.select { |p| rules.includes?(p) }
         else
-          base.map(&.symbol).to_a
+          base
         end
       else
-        base.map(&.symbol).to_a
+        base
       end
     end
 
@@ -195,18 +198,17 @@ module WordMage
     # - `position`: Optional position to filter by (e.g., `:word_initial`)
     #
     # ## Returns
-    # Array of vowel symbols that can appear at the given position
+    # Array of vowel strings that can appear at the given position
     def get_vowels(position : Symbol? = nil) : Array(String)
-      base = @vowels
+      base = @vowels.to_a
       if position
         if rules = @position_rules[position]?
-          filtered = base.select { |p| rules.includes?(p) }
-          filtered.map(&.symbol).to_a
+          base.select { |p| rules.includes?(p) }
         else
-          base.map(&.symbol).to_a
+          base
         end
       else
-        base.map(&.symbol).to_a
+        base
       end
     end
 
@@ -218,7 +220,7 @@ module WordMage
     # ## Note
     # First checks the local vowels set, then falls back to IPA classification for broader coverage
     def is_vowel?(phoneme : String) : Bool
-      @vowels.any?(&.symbol.== phoneme) || IPA::Utils.is_vowel?(phoneme)
+      @vowels.includes?(phoneme) || IPA::Utils.is_vowel?(phoneme)
     end
 
     # Checks if a custom group symbol should be treated as vowel-like for hiatus generation.
@@ -238,7 +240,7 @@ module WordMage
       custom_phonemes = @custom_groups[symbol]
       custom_phonemes.all? { |phoneme| 
         # Check both local vowels set and IPA classification
-        @vowels.includes?(phoneme) || IPA::Utils.is_vowel?(phoneme.symbol)
+        @vowels.includes?(phoneme) || IPA::Utils.is_vowel?(phoneme)
       }
     end
 
@@ -249,7 +251,7 @@ module WordMage
     # - `position`: Optional position constraint
     #
     # ## Returns
-    # A randomly selected phoneme symbol
+    # A randomly selected phoneme string
     #
     # ## Raises
     # Raises if no candidates are available for the given type and position
@@ -276,7 +278,7 @@ module WordMage
     # - `position`: Optional position constraint
     #
     # ## Returns
-    # A randomly selected phoneme symbol from the custom group
+    # A randomly selected phoneme string from the custom group
     #
     # ## Raises
     # Raises if the custom group is not defined or no candidates are available
@@ -293,111 +295,48 @@ module WordMage
     end
 
     private def weighted_sample(candidates : Array(String)) : String
-      # Get phoneme instances for candidates to check weights
-      candidate_phonemes = candidates.map { |symbol| find_phoneme_by_symbol(symbol) }.compact
-      
-      weighted_candidates = candidate_phonemes.select { |p| @weights.has_key?(p) }
-      
+      weighted_candidates = candidates.select { |c| @weights.has_key?(c) }
+      unweighted_candidates = candidates.reject { |c| @weights.has_key?(c) }
+
       if weighted_candidates.empty?
         return candidates.sample
       end
 
-      total_weight = weighted_candidates.sum { |p| @weights[p] }
+      total_weight = weighted_candidates.sum { |c| @weights[c] }
       target = Random.rand * total_weight
       current_weight = 0.0_f32
 
       weighted_candidates.each do |candidate|
         current_weight += @weights[candidate]
-        return candidate.symbol if current_weight >= target
+        return candidate if current_weight >= target
       end
 
       # Fallback (should not reach here in normal circumstances)
-      weighted_candidates.first.symbol
+      weighted_candidates.first
     end
 
-    # Helper method to resolve a single phoneme input to an IPA::Phoneme instance
-    private def resolve_phoneme(input : String | IPA::Phoneme) : IPA::Phoneme
+    # Helper method to resolve a phoneme input to its symbol string
+    private def resolve_phoneme_symbol(input : String | IPA::Phoneme) : String
       case input
       when String
-        # Try to find in BasicPhonemes first
-        found = IPA::Utils.find_phoneme(input)
-        return found if found
-        
-        # If not found, create a basic phoneme
-        # We'll assume it's a consonant if it's not a known vowel
-        if IPA::Utils.is_vowel?(input)
-          # Create a basic vowel (this is a fallback for unknown vowels)
-          IPA::Vowel.new(input, input, :Mid, :Central, rounded: false)
-        else
-          # Create a basic consonant (this is a fallback for unknown consonants)
-          IPA::Consonant.new(input, input, :Approximant, :Alveolar, voiced: true)
-        end
-      when IPA::Phoneme
         input
+      when IPA::Phoneme
+        input.symbol
       else
         raise "Invalid phoneme input type"
       end
     end
 
-    # Helper method to resolve an array of phoneme inputs to IPA::Phoneme instances
-    private def resolve_phonemes(inputs : Array(String | IPA::Phoneme)) : Array(IPA::Phoneme)
-      inputs.map { |input| resolve_phoneme(input) }
-    end
-
-    # Helper method to find a phoneme instance by its symbol
-    private def find_phoneme_by_symbol(symbol : String) : IPA::Phoneme?
-      # Search in consonants
-      @consonants.each do |p|
-        return p if p.symbol == symbol
+    # Helper method to resolve phoneme collection to Set(String)
+    private def resolve_phoneme_set(input : Set(String) | Array(String | IPA::Phoneme)) : Set(String)
+      case input
+      when Set(String)
+        input
+      when Array
+        input.map { |p| resolve_phoneme_symbol(p) }.to_set
+      else
+        raise "Invalid phoneme collection type"
       end
-      
-      # Search in vowels
-      @vowels.each do |p|
-        return p if p.symbol == symbol
-      end
-      
-      # Search in custom groups
-      @custom_groups.each_value do |group|
-        group.each do |p|
-          return p if p.symbol == symbol
-        end
-      end
-      
-      nil
-    end
-
-    # Convenience method to get consonant symbols as strings for backward compatibility
-    def consonant_symbols : Set(String)
-      @consonants.map(&.symbol).to_set
-    end
-
-    # Convenience method to get vowel symbols as strings for backward compatibility
-    def vowel_symbols : Set(String)
-      @vowels.map(&.symbol).to_set
-    end
-
-    # Get consonant phoneme instances directly
-    def consonant_phonemes : Set(IPA::Phoneme)
-      @consonants
-    end
-
-    # Get vowel phoneme instances directly
-    def vowel_phonemes : Set(IPA::Phoneme)
-      @vowels
-    end
-
-    # Get weights mapped by symbol strings for backward compatibility
-    def symbol_weights : Hash(String, Float32)
-      result = Hash(String, Float32).new
-      @weights.each do |phoneme, weight|
-        result[phoneme.symbol] = weight
-      end
-      result
-    end
-
-    # Get weights mapped by phoneme instances directly
-    def phoneme_weights : Hash(IPA::Phoneme, Float32)
-      @weights
     end
   end
 end

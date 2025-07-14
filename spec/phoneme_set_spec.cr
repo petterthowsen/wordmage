@@ -7,8 +7,8 @@ describe WordMage::PhonemeSet do
       vowels = Set{"a", "e", "i"}
       phoneme_set = WordMage::PhonemeSet.new(consonants, vowels)
       
-      phoneme_set.consonants.should eq(consonants)
-      phoneme_set.vowels.should eq(vowels)
+      phoneme_set.consonant_symbols.should eq(consonants)
+      phoneme_set.vowel_symbols.should eq(vowels)
     end
   end
 
@@ -17,7 +17,7 @@ describe WordMage::PhonemeSet do
       phoneme_set = WordMage::PhonemeSet.new(Set(String).new, Set(String).new)
       phoneme_set.add_phoneme("p", :consonant, [:word_initial, :syllable_initial])
       
-      phoneme_set.consonants.should contain("p")
+      phoneme_set.consonant_symbols.should contain("p")
       phoneme_set.get_consonants(:word_initial).should contain("p")
     end
   end
@@ -27,7 +27,7 @@ describe WordMage::PhonemeSet do
       phoneme_set = WordMage::PhonemeSet.new(Set{"p"}, Set{"a"})
       phoneme_set.add_weight("p", 2.0_f32)
       
-      phoneme_set.weights["p"].should eq(2.0_f32)
+      phoneme_set.symbol_weights["p"].should eq(2.0_f32)
     end
   end
 

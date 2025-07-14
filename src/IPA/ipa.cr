@@ -9,6 +9,42 @@ module WordMage::IPA
         def self.is_vowel?(phoneme : String) : Bool
             BasicPhonemes.any? { |p| p.symbol == phoneme && p.category == Category::VOWEL }
         end
+
+        ## Finds a phoneme by its symbol in the BasicPhonemes collection
+        def self.find_phoneme(symbol : String) : Phoneme?
+            BasicPhonemes.find { |p| p.symbol == symbol }
+        end
+
+        ## Resolves a string or Phoneme to a Phoneme instance
+        ## If a string is provided, looks it up in BasicPhonemes
+        ## If a Phoneme is provided, returns it as-is
+        def self.resolve_phoneme(input : String | Phoneme) : Phoneme?
+            case input
+            when String
+                find_phoneme(input)
+            when Phoneme
+                input
+            else
+                nil
+            end
+        end
+
+        ## Resolves a string or Phoneme to a Phoneme instance, raising if not found
+        def self.resolve_phoneme!(input : String | Phoneme) : Phoneme
+            result = resolve_phoneme(input)
+            raise "Phoneme not found: #{input}" if result.nil?
+            result
+        end
+
+        ## Resolves an array of strings/Phonemes to an array of Phoneme instances
+        def self.resolve_phonemes(inputs : Array(String | Phoneme)) : Array(Phoneme?)
+            inputs.map { |input| resolve_phoneme(input) }
+        end
+
+        ## Resolves an array of strings/Phonemes to an array of Phoneme instances, raising if any not found
+        def self.resolve_phonemes!(inputs : Array(String | Phoneme)) : Array(Phoneme)
+            inputs.map { |input| resolve_phoneme!(input) }
+        end
     end
 
     ## The basic phonemes of the International Phonetic Alphabet (IPA)

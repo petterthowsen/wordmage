@@ -22,8 +22,8 @@ describe WordMage::GeneratorBuilder do
         .with_syllable_count(WordMage::SyllableCountSpec.exact(1))
         .build
       
-      generator.phoneme_set.consonants.should eq(consonants.to_set)
-      generator.phoneme_set.vowels.should eq(vowels.to_set)
+      generator.phoneme_set.consonant_symbols.should eq(consonants.to_set)
+      generator.phoneme_set.vowel_symbols.should eq(vowels.to_set)
     end
 
     it "returns self for fluent chaining" do
@@ -45,7 +45,7 @@ describe WordMage::GeneratorBuilder do
         .with_syllable_count(WordMage::SyllableCountSpec.exact(1))
         .build
       
-      generator.phoneme_set.weights.should eq(weights)
+      generator.phoneme_set.symbol_weights.should eq(weights)
     end
 
     it "returns self for fluent chaining" do

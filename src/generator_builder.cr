@@ -48,26 +48,41 @@ module WordMage
     # Sets the consonants and vowels for generation.
     #
     # ## Parameters
-    # - `consonants`: Array of consonant phonemes
-    # - `vowels`: Array of vowel phonemes
+    # - `consonants`: Array of consonant phonemes (strings or IPA::Phoneme instances)
+    # - `vowels`: Array of vowel phonemes (strings or IPA::Phoneme instances)
     #
     # ## Returns
     # Self for method chaining
+    def with_phonemes(consonants : Array(String | IPA::Phoneme), vowels : Array(String | IPA::Phoneme))
+      @phoneme_set = PhonemeSet.new(consonants, vowels)
+      self
+    end
+
+    # Backward compatibility overload for strings only
     def with_phonemes(consonants : Array(String), vowels : Array(String))
-      @phoneme_set = PhonemeSet.new(consonants.to_set, vowels.to_set)
+      @phoneme_set = PhonemeSet.new(consonants.map(&.as(String | IPA::Phoneme)), vowels.map(&.as(String | IPA::Phoneme)))
       self
     end
 
     # Adds weights to phonemes for weighted sampling.
     #
     # ## Parameters
-    # - `weights`: Hash mapping phonemes to their relative weights
+    # - `weights`: Hash mapping phonemes (strings or IPA::Phoneme instances) to their relative weights
     #
     # ## Returns
     # Self for method chaining
     #
     # ## Note
     # Must be called after `with_phonemes`
+    def with_weights(weights : Hash(String | IPA::Phoneme, Float32))
+      phoneme_set = @phoneme_set.not_nil!
+      weights.each do |phoneme, weight|
+        phoneme_set.add_weight(phoneme, weight)
+      end
+      self
+    end
+
+    # Backward compatibility overload for strings only
     def with_weights(weights : Hash(String, Float32))
       phoneme_set = @phoneme_set.not_nil!
       weights.each do |phoneme, weight|
@@ -80,7 +95,7 @@ module WordMage
     #
     # ## Parameters
     # - `symbol`: Single character symbol for the group (e.g., 'F' for fricatives)
-    # - `phonemes`: Array of phonemes belonging to this group
+    # - `phonemes`: Array of phonemes (strings or IPA::Phoneme instances) belonging to this group
     # - `positions`: Optional array of position symbols for positional constraints
     #
     # ## Returns
@@ -98,9 +113,16 @@ module WordMage
     #
     # ## Note
     # Must be called after `with_phonemes`
-    def with_custom_group(symbol : Char, phonemes : Array(String), positions : Array(Symbol) = [] of Symbol)
+    def with_custom_group(symbol : Char, phonemes : Array(String | IPA::Phoneme), positions : Array(Symbol) = [] of Symbol)
       phoneme_set = @phoneme_set.not_nil!
       phoneme_set.add_custom_group(symbol, phonemes, positions)
+      self
+    end
+
+    # Backward compatibility overload for strings only
+    def with_custom_group(symbol : Char, phonemes : Array(String), positions : Array(Symbol) = [] of Symbol)
+      phoneme_set = @phoneme_set.not_nil!
+      phoneme_set.add_custom_group(symbol, phonemes.map(&.as(String | IPA::Phoneme)), positions)
       self
     end
 
@@ -403,7 +425,7 @@ module WordMage
     # Sets a thematic vowel constraint forcing the last vowel to be specific.
     #
     # ## Parameters
-    # - `vowel`: The phoneme that must be the last vowel in generated words
+    # - `vowel`: The phoneme (string or IPA::Phoneme instance) that must be the last vowel in generated words
     #
     # ## Returns
     # Self for method chaining
@@ -411,13 +433,21 @@ module WordMage
     # ## Example
     # ```crystal
     # .with_thematic_vowel("ɑ")  # All words end with /a/ as last vowel
+    # .with_thematic_vowel(IPA::Utils.find_phoneme("a").not_nil!)  # Using IPA::Phoneme
     # ```
     #
     # ## Note
     # This creates words like "thranas", "kona", "tenask" where 'a' is always
     # the final vowel, regardless of other vowels or consonants that follow.
-    def with_thematic_vowel(vowel : String)
-      @thematic_vowel = vowel
+    def with_thematic_vowel(vowel : String | IPA::Phoneme)
+      @thematic_vowel = case vowel
+                       when String
+                         vowel
+                       when IPA::Phoneme
+                         vowel.symbol
+                       else
+                         raise "Invalid vowel type"
+                       end
       self
     end
 
