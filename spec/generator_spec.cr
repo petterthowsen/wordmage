@@ -347,6 +347,102 @@ describe WordMage::Generator do
     end
   end
 
+  describe "flexible generation methods" do
+    it "generates words with specific syllable count" do
+      phoneme_set = WordMage::PhonemeSet.new(Set{"p", "t"}, Set{"a", "e"})
+      syllable_count = WordMage::SyllableCountSpec.range(1, 3)  # Default range
+      templates = [WordMage::SyllableTemplate.new("CV")]
+      word_spec = WordMage::WordSpec.new(syllable_count: syllable_count, syllable_templates: templates)
+      romanizer = WordMage::RomanizationMap.new
+      
+      generator = WordMage::Generator.new(
+        phoneme_set: phoneme_set,
+        word_spec: word_spec,
+        romanizer: romanizer,
+        mode: WordMage::GenerationMode::Random
+      )
+      
+      # Generate 5-syllable word (overriding default range)
+      word = generator.generate(5)
+      word.size.should eq(10)  # 5 syllables * 2 chars each (CV)
+    end
+
+    it "generates words with syllable count range" do
+      phoneme_set = WordMage::PhonemeSet.new(Set{"p", "t"}, Set{"a", "e"})
+      syllable_count = WordMage::SyllableCountSpec.exact(1)  # Default
+      templates = [WordMage::SyllableTemplate.new("CV")]
+      word_spec = WordMage::WordSpec.new(syllable_count: syllable_count, syllable_templates: templates)
+      romanizer = WordMage::RomanizationMap.new
+      
+      generator = WordMage::Generator.new(
+        phoneme_set: phoneme_set,
+        word_spec: word_spec,
+        romanizer: romanizer,
+        mode: WordMage::GenerationMode::Random
+      )
+      
+      # Generate words with 2-4 syllables (overriding default)
+      10.times do
+        word = generator.generate(2, 4)
+        syllables = word.size / 2
+        syllables.should be >= 2
+        syllables.should be <= 4
+      end
+    end
+
+    it "generates words with specific starting type" do
+      phoneme_set = WordMage::PhonemeSet.new(Set{"p", "t"}, Set{"a", "e"})
+      syllable_count = WordMage::SyllableCountSpec.exact(2)
+      templates = [WordMage::SyllableTemplate.new("CV"), WordMage::SyllableTemplate.new("V")]
+      word_spec = WordMage::WordSpec.new(syllable_count: syllable_count, syllable_templates: templates)
+      romanizer = WordMage::RomanizationMap.new
+      
+      generator = WordMage::Generator.new(
+        phoneme_set: phoneme_set,
+        word_spec: word_spec,
+        romanizer: romanizer,
+        mode: WordMage::GenerationMode::Random
+      )
+      
+      # Generate vowel-initial words
+      10.times do
+        word = generator.generate(:vowel)
+        first_char = word[0].to_s
+        phoneme_set.is_vowel?(first_char).should be_true
+      end
+      
+      # Generate consonant-initial words
+      10.times do
+        word = generator.generate(:consonant)
+        first_char = word[0].to_s
+        phoneme_set.is_vowel?(first_char).should be_false
+      end
+    end
+
+    it "generates words with both syllable count and starting type" do
+      phoneme_set = WordMage::PhonemeSet.new(Set{"p", "t"}, Set{"a", "e"})
+      syllable_count = WordMage::SyllableCountSpec.exact(1)  # Default
+      templates = [WordMage::SyllableTemplate.new("CV"), WordMage::SyllableTemplate.new("V")]
+      word_spec = WordMage::WordSpec.new(syllable_count: syllable_count, syllable_templates: templates)
+      romanizer = WordMage::RomanizationMap.new
+      
+      generator = WordMage::Generator.new(
+        phoneme_set: phoneme_set,
+        word_spec: word_spec,
+        romanizer: romanizer,
+        mode: WordMage::GenerationMode::Random
+      )
+      
+      # Generate 3-syllable vowel-initial words
+      10.times do
+        word = generator.generate(3, :vowel)
+        word.size.should be >= 3  # At least 3 syllables (could be V + CV + CV = 4 chars)
+        first_char = word[0].to_s
+        phoneme_set.is_vowel?(first_char).should be_true
+      end
+    end
+  end
+
   describe "complex constraint validation" do
     it "respects word-level constraints" do
       phoneme_set = WordMage::PhonemeSet.new(Set{"r", "p"}, Set{"a"})
@@ -371,6 +467,53 @@ describe WordMage::Generator do
       10.times do
         word = generator.generate
         word.should_not match(/rr/)
+      end
+    end
+
+    it "prevents gemination across syllable boundaries automatically" do
+      phoneme_set = WordMage::PhonemeSet.new(Set{"p", "t"}, Set{"a", "e"})
+      syllable_count = WordMage::SyllableCountSpec.exact(2)
+      templates = [WordMage::SyllableTemplate.new("CV")]
+      word_spec = WordMage::WordSpec.new(syllable_count: syllable_count, syllable_templates: templates)
+      romanizer = WordMage::RomanizationMap.new
+      
+      generator = WordMage::Generator.new(
+        phoneme_set: phoneme_set,
+        word_spec: word_spec,
+        romanizer: romanizer,
+        mode: WordMage::GenerationMode::Random
+      )
+      
+      # Generate multiple words and verify no gemination across syllable boundaries
+      50.times do
+        word = generator.generate
+        # Should not have double vowels or consonants across syllable boundaries
+        word.should_not match(/aa|ee|pp|tt/)
+      end
+    end
+
+    it "prevents excessive vowel sequences across syllable boundaries" do
+      phoneme_set = WordMage::PhonemeSet.new(Set{"p", "t"}, Set{"a", "e", "i", "o", "u"})
+      syllable_count = WordMage::SyllableCountSpec.exact(3)
+      # Use templates that can create hiatus and vowel-initial syllables
+      hiatus_template = WordMage::SyllableTemplate.new("CV", hiatus_probability: 0.5_f32)
+      vowel_template = WordMage::SyllableTemplate.new("V")
+      templates = [hiatus_template, vowel_template]
+      word_spec = WordMage::WordSpec.new(syllable_count: syllable_count, syllable_templates: templates)
+      romanizer = WordMage::RomanizationMap.new
+      
+      generator = WordMage::Generator.new(
+        phoneme_set: phoneme_set,
+        word_spec: word_spec,
+        romanizer: romanizer,
+        mode: WordMage::GenerationMode::Random
+      )
+      
+      # Generate multiple words and verify no 3+ consecutive vowels
+      50.times do
+        word = generator.generate
+        # Should not have 3+ consecutive vowels like "aei", "uao", "iou", etc.
+        word.should_not match(/[aeiou]{3,}/)
       end
     end
   end

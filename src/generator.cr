@@ -64,6 +64,53 @@ module WordMage
       end
     end
 
+    # Generates a word with a specific syllable count.
+    #
+    # ## Parameters
+    # - `syllable_count`: Exact number of syllables to generate
+    #
+    # ## Returns
+    # A romanized word string with the specified syllable count
+    def generate(syllable_count : Int32) : String
+      generate_random_with_syllable_count(syllable_count)
+    end
+
+    # Generates a word with syllable count from a range.
+    #
+    # ## Parameters  
+    # - `min_syllables`: Minimum syllable count
+    # - `max_syllables`: Maximum syllable count
+    #
+    # ## Returns
+    # A romanized word string with syllables in the specified range
+    def generate(min_syllables : Int32, max_syllables : Int32) : String
+      syllable_count = Random.rand(min_syllables..max_syllables)
+      generate_random_with_syllable_count(syllable_count)
+    end
+
+    # Generates a word with a specific starting type.
+    #
+    # ## Parameters
+    # - `starting_type`: Either `:vowel` or `:consonant`
+    #
+    # ## Returns
+    # A romanized word string starting with the specified phoneme type
+    def generate(starting_type : Symbol) : String
+      generate_with_starting_type(starting_type)
+    end
+
+    # Generates a word with both syllable count and starting type.
+    #
+    # ## Parameters
+    # - `syllable_count`: Exact number of syllables
+    # - `starting_type`: Either `:vowel` or `:consonant`
+    #
+    # ## Returns  
+    # A romanized word string with specified syllables and starting type
+    def generate(syllable_count : Int32, starting_type : Symbol) : String
+      generate_with_syllable_count_and_starting_type(syllable_count, starting_type)
+    end
+
     # Generates multiple words.
     #
     # ## Parameters
@@ -105,6 +152,19 @@ module WordMage
 
     private def generate_random : String
       syllable_count = @word_spec.generate_syllable_count
+      generate_random_with_syllable_count(syllable_count)
+    end
+
+    private def generate_random_with_syllable_count(syllable_count : Int32) : String
+      generate_with_syllable_count_and_starting_type(syllable_count, @word_spec.starting_type)
+    end
+
+    private def generate_with_starting_type(starting_type : Symbol) : String
+      syllable_count = @word_spec.generate_syllable_count
+      generate_with_syllable_count_and_starting_type(syllable_count, starting_type)
+    end
+
+    private def generate_with_syllable_count_and_starting_type(syllable_count : Int32, starting_type : Symbol?) : String
       syllables = [] of Array(String)
 
       (0...syllable_count).each do |i|
@@ -120,16 +180,88 @@ module WordMage
 
       phonemes = syllables.flatten
 
-      # Check word-level constraints and starting type
-      if @word_spec.validate_word(phonemes) && matches_starting_type?(phonemes)
+      # Check word-level constraints, starting type, and phonological issues
+      if @word_spec.validate_word(phonemes) && matches_starting_type_override?(phonemes, starting_type) && !has_syllable_boundary_gemination?(syllables) && !has_excessive_vowel_sequences?(phonemes)
         @romanizer.romanize(phonemes)
       else
-        generate_random # Retry
+        generate_with_syllable_count_and_starting_type(syllable_count, starting_type) # Retry
       end
     end
 
+    # Checks if there's gemination or problematic vowel sequences across syllable boundaries
+    private def has_syllable_boundary_gemination?(syllables : Array(Array(String))) : Bool
+      return false if syllables.size < 2
+
+      # Check each syllable boundary
+      (0...syllables.size-1).each do |i|
+        current_syllable = syllables[i]
+        next_syllable = syllables[i+1]
+        
+        next if current_syllable.empty? || next_syllable.empty?
+        
+        # Check if last phoneme of current syllable equals first phoneme of next syllable
+        if current_syllable.last == next_syllable.first
+          return true
+        end
+        
+        # Check for excessive vowel sequences across boundary
+        if has_excessive_vowel_sequence?(current_syllable, next_syllable)
+          return true
+        end
+      end
+
+      false
+    end
+
+    # Checks if joining two syllables would create 3+ consecutive vowels
+    private def has_excessive_vowel_sequence?(current_syllable : Array(String), next_syllable : Array(String)) : Bool
+      # Look at the end of current syllable and start of next syllable
+      # Check up to 2 phonemes from each syllable to catch sequences like "ua" + "o" = "uao"
+      
+      current_end = current_syllable.last(2)  # Last 1-2 phonemes
+      next_start = next_syllable.first(2)     # First 1-2 phonemes
+      
+      # Combine them and check for 3+ consecutive vowels
+      boundary_sequence = current_end + next_start
+      
+      vowel_count = 0
+      max_consecutive_vowels = 0
+      
+      boundary_sequence.each do |phoneme|
+        if @phoneme_set.is_vowel?(phoneme)
+          vowel_count += 1
+          max_consecutive_vowels = [max_consecutive_vowels, vowel_count].max
+        else
+          vowel_count = 0
+        end
+      end
+      
+      # Reject if we have 3+ consecutive vowels
+      max_consecutive_vowels >= 3
+    end
+
+    # Checks if the entire word has 3+ consecutive vowels anywhere
+    private def has_excessive_vowel_sequences?(phonemes : Array(String)) : Bool
+      vowel_count = 0
+      
+      phonemes.each do |phoneme|
+        if @phoneme_set.is_vowel?(phoneme)
+          vowel_count += 1
+          return true if vowel_count >= 3  # Found 3+ consecutive vowels
+        else
+          vowel_count = 0
+        end
+      end
+      
+      false
+    end
+
     private def matches_starting_type?(phonemes : Array(String)) : Bool
-      return true unless starting_type = @word_spec.starting_type
+      matches_starting_type_override?(phonemes, @word_spec.starting_type)
+    end
+
+    private def matches_starting_type_override?(phonemes : Array(String), starting_type : Symbol?) : Bool
+      return true unless starting_type
 
       first_phoneme = phonemes.first?
       return false unless first_phoneme
