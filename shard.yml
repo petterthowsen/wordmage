@@ -1,0 +1,9 @@
+name: wordmage
+version: 0.1.0
+
+authors:
+  - Petter Thowsen <petterthowsen@gmail.com>
+
+crystal: '>= 1.16.3'
+
+license: MIT
