@@ -37,8 +37,8 @@ phoneme_weights = {
   "ɲ" => 0.5_f32, "ʒ" => 0.5_f32, "u" => 1.5_f32  # reduce harsh sounds
 }
 
-# Simplified clusters for more elegant words
-onset_clusters = ["tr", "gr", "θr", "dr"]  # Keep only the most flowing clusters
+# Simplified clusters for more elegant words (using romanized forms)
+onset_clusters = ["tr", "gr", "thr", "dr"]  # Keep only the most flowing clusters
 coda_clusters = ["n", "s", "r"]  # Simple codas instead of complex clusters
 
 # Simplified syllable templates for more elegant words
@@ -249,6 +249,9 @@ puts "\n### Creating Generator from Analysis (with automatic vowel harmony)"
 analyzed_generator = WordMage::GeneratorBuilder.create
   .with_phonemes(["b", "d", "f", "g", "k", "l", "m", "n", "p", "r", "s", "t", "v", "z", "ɲ", "ʒ", "θ"], 
                  ["i", "u", "y", "ɑ", "ɔ", "ɛ"])
+  .with_syllable_templates([
+    regular_template, vowel_template, cluster_template, coda_template
+  ])  # Define cluster-constrained templates BEFORE analysis
   .with_romanization(romanization)
   .with_analysis_of_words(target_words)  # Automatically includes vowel harmony!
   .with_hiatus_escalation(2.0_f32)
@@ -267,6 +270,7 @@ puts "\n### Vowel Harmony API Flexibility"
 puts "\n## 1. Without vowel harmony:"
 no_harmony_gen = WordMage::GeneratorBuilder.create
   .with_phonemes(["b", "d", "g", "k", "l", "m", "n", "r", "s", "t", "θ"], ["ɑ", "ɛ", "ɔ", "i", "u", "y"])
+  .with_syllable_templates([regular_template, vowel_template, cluster_template, coda_template])
   .with_romanization(romanization)
   .with_analysis_of_words(target_words, vowel_harmony: false)  # Disable harmony
   .random_mode
@@ -277,6 +281,7 @@ no_harmony_gen = WordMage::GeneratorBuilder.create
 puts "\n## 2. With weak vowel harmony:"
 weak_harmony_gen = WordMage::GeneratorBuilder.create
   .with_phonemes(["b", "d", "g", "k", "l", "m", "n", "r", "s", "t", "θ"], ["ɑ", "ɛ", "ɔ", "i", "u", "y"])
+  .with_syllable_templates([regular_template, vowel_template, cluster_template, coda_template])
   .with_romanization(romanization)
   .with_analysis_of_words(target_words)  # Auto harmony
   .with_vowel_harmony_strength(0.3_f32)  # Make it weak
@@ -288,6 +293,7 @@ weak_harmony_gen = WordMage::GeneratorBuilder.create
 puts "\n## 3. With strong vowel harmony:"
 strong_harmony_gen = WordMage::GeneratorBuilder.create
   .with_phonemes(["b", "d", "g", "k", "l", "m", "n", "r", "s", "t", "θ"], ["ɑ", "ɛ", "ɔ", "i", "u", "y"])
+  .with_syllable_templates([regular_template, vowel_template, cluster_template, coda_template])
   .with_romanization(romanization)
   .with_analysis_of_words(target_words)  # Auto harmony  
   .with_vowel_harmony_strength(0.9_f32)  # Make it strong

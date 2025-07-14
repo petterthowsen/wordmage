@@ -373,7 +373,7 @@ module WordMage
                    end
 
         template = @word_spec.select_template(position)
-        syllables << template.generate(@phoneme_set, position)
+        syllables << template.generate(@phoneme_set, position, @romanizer)
       end
 
       phonemes = syllables.flatten
@@ -411,7 +411,7 @@ module WordMage
                    end
 
         template = @word_spec.select_template(position)
-        syllables << template.generate(@phoneme_set, position)
+        syllables << template.generate(@phoneme_set, position, @romanizer)
       end
 
       phonemes = syllables.flatten
@@ -521,7 +521,7 @@ module WordMage
         generate_melodic_syllable(template, position, used_vowels)
       else
         # Normal generation with budget
-        template.generate(@phoneme_set, position)
+        template.generate(@phoneme_set, position, @romanizer)
       end
     end
 
@@ -538,11 +538,11 @@ module WordMage
 
     # Generates syllable with vowel harmony applied
     private def generate_syllable_with_harmony(template : SyllableTemplate, position : Symbol, vowel_sequence : Array(String)) : Array(String)
-      return template.generate(@phoneme_set, position) unless @vowel_harmony && @vowel_harmony.not_nil!.active?
+      return template.generate(@phoneme_set, position, @romanizer) unless @vowel_harmony && @vowel_harmony.not_nil!.active?
       
       # For complex patterns with clusters, use normal generation then apply harmony to vowels only
       if template.pattern.includes?("CC") || template.allowed_clusters || template.allowed_coda_clusters
-        return apply_harmony_to_existing_syllable(template.generate(@phoneme_set, position), vowel_sequence, position)
+        return apply_harmony_to_existing_syllable(template.generate(@phoneme_set, position, @romanizer), vowel_sequence, position)
       end
       
       # For simple patterns, generate with harmony
@@ -607,7 +607,7 @@ module WordMage
       if template.validate(syllable) && !has_vowel_gemination_in_syllable?(syllable)
         syllable
       else
-        template.generate(@phoneme_set, position)  # Fallback to normal generation
+        template.generate(@phoneme_set, position, @romanizer)  # Fallback to normal generation
       end
     end
 

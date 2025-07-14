@@ -314,8 +314,8 @@ module WordMage
       # Apply complexity budget from analysis
       @complexity_budget = analysis.recommended_budget
       
-      # Create syllable templates from recommended patterns
-      if analysis.recommended_templates.size > 0
+      # Create syllable templates from recommended patterns (only if none are already defined)
+      if analysis.recommended_templates.size > 0 && @syllable_templates.nil?
         templates = analysis.recommended_templates.map do |pattern|
           SyllableTemplate.new(pattern, hiatus_probability: analysis.recommended_hiatus_probability)
         end

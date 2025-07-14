@@ -37,8 +37,8 @@ module WordMage
     # - `constraints`: Regex patterns that syllables must NOT match
     # - `hiatus_probability`: Chance (0.0-1.0) that V becomes VV
     # - `position_weights`: Weights for using this template at different positions
-    # - `allowed_clusters`: Specific onset clusters allowed for CC patterns (optional)
-    # - `allowed_coda_clusters`: Specific coda clusters allowed for CC at end (optional)
+    # - `allowed_clusters`: Specific onset clusters allowed for CC patterns (optional, in romanized form)
+    # - `allowed_coda_clusters`: Specific coda clusters allowed for CC at end (optional, in romanized form)
     def initialize(@pattern : String, @constraints : Array(String) = [] of String, @hiatus_probability : Float32 = 0.0_f32, @position_weights : Hash(Symbol, Float32) = Hash(Symbol, Float32).new, @allowed_clusters : Array(String)? = nil, @allowed_coda_clusters : Array(String)? = nil)
     end
 
@@ -47,6 +47,7 @@ module WordMage
     # ## Parameters
     # - `phonemes`: PhonemeSet to sample from
     # - `position`: Syllable position (`:initial`, `:medial`, `:final`)
+    # - `romanizer`: Optional romanization map for parsing romanized clusters
     # - `retry_count`: Internal parameter to limit recursion depth
     #
     # ## Returns
@@ -54,7 +55,7 @@ module WordMage
     #
     # ## Note
     # Automatically retries if constraints are violated, up to a maximum retry limit
-    def generate(phonemes : PhonemeSet, position : Symbol, retry_count : Int32 = 0) : Array(String)
+    def generate(phonemes : PhonemeSet, position : Symbol, romanizer : RomanizationMap? = nil, retry_count : Int32 = 0) : Array(String)
       # Prevent infinite recursion by limiting retry attempts
       max_retries = 10
       if retry_count >= max_retries
@@ -65,7 +66,7 @@ module WordMage
       if has_adjacent_consonants?
         # Multiple consonants patterns require explicit cluster definitions
         if @pattern.starts_with?("CC") || @pattern.ends_with?("CC")
-          return generate_with_clusters(phonemes, position)
+          return generate_with_clusters(phonemes, position, romanizer)
         else
           # Fallback to basic vowel detection using the IPA module
           return generate_fallback(phonemes, position)
@@ -123,12 +124,12 @@ module WordMage
       if validate(syllable) && !has_illegal_adjacent_consonants?(syllable, phonemes)
         syllable
       else
-        generate(phonemes, position, retry_count + 1)
+        generate(phonemes, position, romanizer, retry_count + 1)
       end
     end
 
     # Generates syllable using allowed clusters
-    private def generate_with_clusters(phonemes : PhonemeSet, position : Symbol, retry_count : Int32 = 0) : Array(String)
+    private def generate_with_clusters(phonemes : PhonemeSet, position : Symbol, romanizer : RomanizationMap? = nil, retry_count : Int32 = 0) : Array(String)
       # Prevent infinite recursion by limiting retry attempts
       max_retries = 10
       if retry_count >= max_retries
@@ -143,7 +144,7 @@ module WordMage
         # Onset cluster required
         if onset_clusters = @allowed_clusters
           valid_onset_clusters = onset_clusters.select do |cluster|
-            cluster.chars.all? { |char| available_consonants.includes?(char.to_s) }
+            parse_romanized_cluster(cluster, romanizer).all? { |phoneme| available_consonants.includes?(phoneme) }
           end
           
           if valid_onset_clusters.empty?
@@ -152,7 +153,7 @@ module WordMage
           
           # Add onset cluster
           chosen_cluster = valid_onset_clusters.sample
-          syllable.concat(chosen_cluster.chars.map(&.to_s))
+          syllable.concat(parse_romanized_cluster(chosen_cluster, romanizer))
         else
           # Generate automatic clusters from available consonants
           consonants_array = available_consonants.to_a
@@ -190,12 +191,12 @@ module WordMage
         # Coda cluster required
         if coda_clusters = @allowed_coda_clusters
           valid_coda_clusters = coda_clusters.select do |cluster|
-            cluster.chars.all? { |char| available_consonants.includes?(char.to_s) }
+            parse_romanized_cluster(cluster, romanizer).all? { |phoneme| available_consonants.includes?(phoneme) }
           end
           
           if !valid_coda_clusters.empty?
             chosen_coda_cluster = valid_coda_clusters.sample
-            syllable.concat(chosen_coda_cluster.chars.map(&.to_s))
+            syllable.concat(parse_romanized_cluster(chosen_coda_cluster, romanizer))
           else
             # No valid coda clusters available - fall back
             return generate_fallback(phonemes, position)
@@ -226,7 +227,7 @@ module WordMage
       if validate(syllable)
         syllable
       else
-        generate_with_clusters(phonemes, position, retry_count + 1)
+        generate_with_clusters(phonemes, position, romanizer, retry_count + 1)
       end
     end
 
@@ -311,7 +312,7 @@ module WordMage
         phonemes.sample_phoneme(:vowel, position)
       else
         # Use weighted sampling if weights exist
-        if phonemes.weights.empty?
+        if phonemes.symbol_weights.empty?
           available_vowels.sample
         else
           weighted_sample_vowels(available_vowels, phonemes)
@@ -347,18 +348,19 @@ module WordMage
 
     # Weighted sampling for vowels excluding specific vowel
     private def weighted_sample_vowels(candidates : Array(String), phonemes : PhonemeSet) : String
-      weighted_candidates = candidates.select { |c| phonemes.weights.has_key?(c) }
+      symbol_weights = phonemes.symbol_weights
+      weighted_candidates = candidates.select { |c| symbol_weights.has_key?(c) }
       
       if weighted_candidates.empty?
         return candidates.sample
       end
 
-      total_weight = weighted_candidates.sum { |c| phonemes.weights[c] }
+      total_weight = weighted_candidates.sum { |c| symbol_weights[c] }
       target = Random.rand * total_weight
       current_weight = 0.0_f32
 
       weighted_candidates.each do |candidate|
-        current_weight += phonemes.weights[candidate]
+        current_weight += symbol_weights[candidate]
         return candidate if current_weight >= target
       end
 
@@ -448,6 +450,47 @@ module WordMage
       phoneme_set.is_vowel? phoneme if phoneme_set
 
       IPA::Utils.is_vowel? phoneme
+    end
+
+    # Parses a romanized cluster into individual phoneme symbols
+    # For example: "thr" becomes ["θ", "r"] using the romanization map
+    private def parse_romanized_cluster(cluster : String, romanizer : RomanizationMap?) : Array(String)
+      return cluster.chars.map(&.to_s) unless romanizer
+      
+      # Parse the cluster by finding the longest matching romanized sequences
+      phonemes = [] of String
+      i = 0
+      
+      while i < cluster.size
+        # Try to find the longest matching romanized form starting at position i
+        found = false
+        
+        # Check from longest possible substring down to single character
+        max_length = [cluster.size - i, 3].min  # Max reasonable romanization length is 3 (like "thr")
+        max_length.downto(1) do |length|
+          substring = cluster[i, length]
+          
+          # Find IPA phoneme that maps to this romanized form
+          romanizer.mappings.each do |ipa_phoneme, romanized_form|
+            if romanized_form == substring
+              phonemes << ipa_phoneme
+              i += length
+              found = true
+              break
+            end
+          end
+          
+          break if found
+        end
+        
+        # If no mapping found, treat as literal character
+        unless found
+          phonemes << cluster[i].to_s
+          i += 1
+        end
+      end
+      
+      phonemes
     end
   end
 end
