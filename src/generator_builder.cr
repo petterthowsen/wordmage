@@ -29,6 +29,8 @@ module WordMage
     @mode : GenerationMode?
     @max_words : Int32?
     @complexity_budget : Int32?
+    @hiatus_escalation_factor : Float32?
+    @vowel_harmony : VowelHarmony?
 
     # Creates a new GeneratorBuilder instance.
     #
@@ -196,18 +198,55 @@ module WordMage
       self
     end
 
+    # Sets the hiatus escalation factor for controlling multiple hiatus sequences.
+    #
+    # ## Parameters
+    # - `factor`: Escalation multiplier (typical range: 1.0-3.0)
+    #   - 1.0: No escalation, all hiatus cost the same
+    #   - 1.5: Moderate escalation (default)
+    #   - 2.0: Strong escalation, discourages multiple hiatus
+    #   - 3.0: Very strong escalation
+    #
+    # ## Returns
+    # Self for method chaining
+    #
+    # ## Note
+    # Each additional hiatus in a word costs progressively more:
+    # 1st hiatus: 2 points, 2nd: 2×factor points, 3rd: 2×factor² points
+    def with_hiatus_escalation(factor : Float32)
+      @hiatus_escalation_factor = factor
+      self
+    end
+
+    # Sets vowel harmony rules for the generator.
+    #
+    # ## Parameters
+    # - `harmony`: VowelHarmony instance defining transition rules and strength
+    #
+    # ## Returns
+    # Self for method chaining
+    #
+    # ## Note
+    # Vowel harmony controls which vowels can follow others, from strict
+    # traditional harmony (strength 1.0) to loose statistical preferences (0.1-0.5).
+    def with_vowel_harmony(harmony : VowelHarmony)
+      @vowel_harmony = harmony
+      self
+    end
+
     # Applies an analysis to configure the generator.
     #
     # ## Parameters
     # - `analysis`: Analysis instance containing language patterns
+    # - `vowel_harmony`: Whether to apply vowel harmony (default: true)
     #
     # ## Returns
     # Self for method chaining
     #
     # ## Note
     # This method applies phoneme weights, syllable patterns, complexity budget,
-    # and other settings derived from the analysis.
-    def with_analysis(analysis : Analysis)
+    # vowel harmony, and other settings derived from the analysis.
+    def with_analysis(analysis : Analysis, vowel_harmony : Bool = true)
       # Apply phoneme weights from frequency analysis
       analysis.phoneme_frequencies.each do |phoneme, frequency|
         # Convert frequency to weight (scale up for more impact)
@@ -233,6 +272,12 @@ module WordMage
         @syllable_count = SyllableCountSpec.weighted(analysis.syllable_count_distribution)
       end
       
+      # Apply vowel harmony if requested and available
+      if vowel_harmony && !analysis.vowel_transitions.empty?
+        # Use moderate strength by default, can be overridden later
+        @vowel_harmony = analysis.generate_vowel_harmony(strength: 0.6_f32, threshold: 0.15_f32)
+      end
+      
       self
     end
 
@@ -240,23 +285,86 @@ module WordMage
     #
     # ## Parameters
     # - `words`: Array of romanized words to analyze
+    # - `vowel_harmony`: Whether to auto-detect and apply vowel harmony (default: true)
     #
     # ## Returns
     # Self for method chaining
     #
     # ## Note
     # This method uses the existing romanization map to analyze the words
-    # and applies the results to the generator configuration.
+    # and applies the results to the generator configuration, including
+    # automatic vowel harmony detection.
     #
     # ## Raises
     # Raises if no romanization map has been set
-    def with_analysis_of_words(words : Array(String))
+    def with_analysis_of_words(words : Array(String), vowel_harmony : Bool = true)
       romanizer = @romanizer || raise "No romanization map set. Use with_romanization() first."
       
       analyzer = Analyzer.new(romanizer)
       analysis = analyzer.analyze(words)
       
-      with_analysis(analysis)
+      with_analysis(analysis, vowel_harmony)
+    end
+
+    # Sets vowel harmony rules for the generator.
+    #
+    # ## Parameters
+    # - `harmony`: VowelHarmony instance defining transition rules and strength
+    #
+    # ## Returns
+    # Self for method chaining
+    #
+    # ## Note
+    # Vowel harmony controls which vowels can follow others, from strict
+    # traditional harmony (strength 1.0) to loose statistical preferences (0.1-0.5).
+    def with_vowel_harmony(harmony : VowelHarmony)
+      @vowel_harmony = harmony
+      self
+    end
+
+    # Toggles vowel harmony on/off or sets strength.
+    #
+    # ## Parameters
+    # - `enabled`: Whether to enable vowel harmony
+    #
+    # ## Returns
+    # Self for method chaining
+    #
+    # ## Note
+    # Requires previous analysis to have been applied. If enabled is false,
+    # disables vowel harmony. If true, uses the detected harmony rules.
+    def with_vowel_harmony(enabled : Bool)
+      if enabled
+        # Keep existing harmony if available, otherwise warn
+        if @vowel_harmony.nil?
+          # Try to use a basic harmony if none exists
+          puts "Warning: No vowel harmony rules available. Use with_analysis_of_words first."
+        end
+      else
+        @vowel_harmony = nil
+      end
+      self
+    end
+
+    # Sets the vowel harmony strength/weight.
+    #
+    # ## Parameters
+    # - `strength`: Harmony strength (0.0-1.0)
+    #
+    # ## Returns
+    # Self for method chaining
+    #
+    # ## Note
+    # Requires vowel harmony to already be configured. Adjusts the strength
+    # of existing harmony rules.
+    def with_vowel_harmony_strength(strength : Float32)
+      if harmony = @vowel_harmony
+        # Create new harmony with same rules but different strength
+        @vowel_harmony = VowelHarmony.new(harmony.rules, strength, harmony.default_preference)
+      else
+        puts "Warning: No vowel harmony rules to adjust. Use with_analysis_of_words or with_vowel_harmony first."
+      end
+      self
     end
 
     # Builds the final Generator instance.
@@ -280,7 +388,9 @@ module WordMage
         romanizer: @romanizer || RomanizationMap.new,
         mode: @mode || GenerationMode::Random,
         max_words: @max_words || 1000,
-        complexity_budget: @complexity_budget
+        complexity_budget: @complexity_budget,
+        hiatus_escalation_factor: @hiatus_escalation_factor || 1.5_f32,
+        vowel_harmony: @vowel_harmony
       )
     end
   end

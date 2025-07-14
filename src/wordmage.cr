@@ -8,7 +8,8 @@ require "./word_analysis"
 require "./word_analyzer"
 require "./analysis"
 require "./analyzer"
+require "./vowel_harmony"
 
 module WordMage
-  VERSION = "0.2.0"
+  VERSION = "0.3.0"
 end

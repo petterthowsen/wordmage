@@ -80,6 +80,7 @@ simple_generator = WordMage::GeneratorBuilder.create
   }))
   .with_romanization(romanization)
   .with_complexity_budget(5)  # Simple, melodic words
+  .with_hiatus_escalation(2.0_f32)  # Discourage multiple hiatus
   .random_mode
   .build
 
@@ -156,7 +157,8 @@ puts "\n## Complexity Budget System"
 puts "• Budget 5: Simple, melodic words with vowel harmony"
 puts "• Budget 8: Moderate complexity with occasional clusters" 
 puts "• Budget 12: Complex words with full cluster and hiatus patterns"
-puts "• Complexity costs: Clusters (3pts), Hiatus (2pts), Complex codas (2pts)"
+puts "• Complexity costs: Clusters (3pts), Hiatus (2pts escalating), Complex codas (2pts)"
+puts "• Hiatus escalation: 1st=2pts, 2nd=4pts, 3rd=8pts (prevents 'riemaotse' type words)"
 puts "• When budget exhausted: Switches to simple CV patterns with vowel reuse"
 
 puts "\n## Word Analysis Example"
@@ -230,12 +232,27 @@ end
 puts "\n### Aggregate Analysis"
 puts analysis.summary
 
-puts "\n### Creating Generator from Analysis"
+puts "\n### Vowel Harmony Analysis"
+puts "Detected vowel transitions:"
+analysis.vowel_transitions.each do |from_vowel, transitions|
+  puts "  #{romanization[from_vowel]} → "
+  transitions.each do |to_vowel, frequency|
+    percentage = (frequency * 100).round(1)
+    puts "    #{romanization[to_vowel]}: #{percentage}%"
+  end
+end
+
+puts "Vowel harmony strength: #{analysis.vowel_harmony_strength}"
+puts "Transition diversity: #{analysis.vowel_transition_diversity.round(2)}"
+
+puts "\n### Creating Generator from Analysis (with automatic vowel harmony)"
 analyzed_generator = WordMage::GeneratorBuilder.create
   .with_phonemes(["b", "d", "f", "g", "k", "l", "m", "n", "p", "r", "s", "t", "v", "z", "ɲ", "ʒ", "θ"], 
                  ["i", "u", "y", "ɑ", "ɔ", "ɛ"])
   .with_romanization(romanization)
-  .with_analysis_of_words(target_words)
+  .with_analysis_of_words(target_words)  # Automatically includes vowel harmony!
+  .with_hiatus_escalation(2.0_f32)
+  .with_vowel_harmony_strength(0.7_f32)  # Adjust harmony strength
   .random_mode
   .build
 
@@ -245,9 +262,48 @@ puts "\n### Words Generated from Analysis (should match target style)"
   puts "#{i + 1}. #{word}"
 end
 
+puts "\n### Vowel Harmony API Flexibility"
+
+puts "\n## 1. Without vowel harmony:"
+no_harmony_gen = WordMage::GeneratorBuilder.create
+  .with_phonemes(["b", "d", "g", "k", "l", "m", "n", "r", "s", "t", "θ"], ["ɑ", "ɛ", "ɔ", "i", "u", "y"])
+  .with_romanization(romanization)
+  .with_analysis_of_words(target_words, vowel_harmony: false)  # Disable harmony
+  .random_mode
+  .build
+
+5.times { |i| puts "#{i + 1}. #{no_harmony_gen.generate}" }
+
+puts "\n## 2. With weak vowel harmony:"
+weak_harmony_gen = WordMage::GeneratorBuilder.create
+  .with_phonemes(["b", "d", "g", "k", "l", "m", "n", "r", "s", "t", "θ"], ["ɑ", "ɛ", "ɔ", "i", "u", "y"])
+  .with_romanization(romanization)
+  .with_analysis_of_words(target_words)  # Auto harmony
+  .with_vowel_harmony_strength(0.3_f32)  # Make it weak
+  .random_mode
+  .build
+
+5.times { |i| puts "#{i + 1}. #{weak_harmony_gen.generate}" }
+
+puts "\n## 3. With strong vowel harmony:"
+strong_harmony_gen = WordMage::GeneratorBuilder.create
+  .with_phonemes(["b", "d", "g", "k", "l", "m", "n", "r", "s", "t", "θ"], ["ɑ", "ɛ", "ɔ", "i", "u", "y"])
+  .with_romanization(romanization)
+  .with_analysis_of_words(target_words)  # Auto harmony  
+  .with_vowel_harmony_strength(0.9_f32)  # Make it strong
+  .random_mode
+  .build
+
+5.times { |i| puts "#{i + 1}. #{strong_harmony_gen.generate}" }
+
 puts "\n### Saving Analysis to JSON"
 json_data = analysis.to_json
 puts "Analysis saved (#{json_data.size} characters)"
 puts "Phoneme diversity: #{analysis.phoneme_diversity.round(2)}"
 puts "Structural complexity: #{analysis.structural_complexity.round(2)}"
 puts "Complexity preference: #{analysis.complexity_preference}"
+puts "\nVowel Harmony Features:"
+puts "• Automatic detection from with_analysis_of_words()"
+puts "• Toggle: .with_vowel_harmony(false) or .with_vowel_harmony(true)"
+puts "• Adjust strength: .with_vowel_harmony_strength(0.0-1.0)"
+puts "• Manual rules: .with_vowel_harmony(custom_harmony_object)"

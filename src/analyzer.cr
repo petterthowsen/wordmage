@@ -69,6 +69,9 @@ module WordMage
       # Aggregate hiatus patterns
       hiatus_patterns = calculate_hiatus_patterns(word_analyses)
       
+      # Aggregate vowel transitions
+      vowel_transitions = calculate_vowel_transitions(word_analyses)
+      
       # Aggregate complexity distribution
       complexity_distribution = calculate_complexity_distribution(word_analyses)
       
@@ -101,7 +104,8 @@ module WordMage
         recommended_budget: recommended_budget,
         recommended_templates: recommended_templates,
         recommended_hiatus_probability: recommended_hiatus_probability,
-        dominant_patterns: dominant_patterns
+        dominant_patterns: dominant_patterns,
+        vowel_transitions: vowel_transitions
       )
     end
 
@@ -358,6 +362,56 @@ module WordMage
       
       # Clamp to reasonable bounds
       [0.0_f32, [base_probability, 0.8_f32].min].max
+    end
+
+    # Calculates vowel transition patterns.
+    #
+    # ## Parameters
+    # - `word_analyses`: Array of WordAnalysis instances
+    #
+    # ## Returns
+    # Hash mapping vowels to their transition frequencies
+    private def calculate_vowel_transitions(word_analyses : Array(WordAnalysis)) : Hash(String, Hash(String, Float32))
+      transition_counts = Hash(String, Hash(String, Int32)).new { |h, k| h[k] = Hash(String, Int32).new(0) }
+      transition_totals = Hash(String, Int32).new(0)
+      
+      word_analyses.each do |analysis|
+        vowels = analysis.phonemes.select { |p| is_vowel?(p) }
+        
+        # Track transitions between adjacent vowels
+        (0...vowels.size-1).each do |i|
+          from_vowel = vowels[i]
+          to_vowel = vowels[i+1]
+          
+          transition_counts[from_vowel][to_vowel] += 1
+          transition_totals[from_vowel] += 1
+        end
+      end
+      
+      # Convert counts to frequencies
+      transitions = Hash(String, Hash(String, Float32)).new
+      transition_counts.each do |from_vowel, to_vowels|
+        total = transition_totals[from_vowel]
+        next if total == 0
+        
+        transitions[from_vowel] = Hash(String, Float32).new
+        to_vowels.each do |to_vowel, count|
+          transitions[from_vowel][to_vowel] = count.to_f32 / total.to_f32
+        end
+      end
+      
+      transitions
+    end
+
+    # Checks if a phoneme is a vowel (helper method).
+    #
+    # ## Parameters
+    # - `phoneme`: The phoneme to check
+    #
+    # ## Returns
+    # `true` if the phoneme is a vowel, `false` otherwise
+    private def is_vowel?(phoneme : String) : Bool
+      ["a", "e", "i", "o", "u", "y", "ɑ", "ɛ", "ɪ", "ɔ", "ʊ", "ə", "æ", "ʌ", "ɒ"].includes?(phoneme)
     end
 
     # Calculates the dominant syllable patterns.

@@ -1,4 +1,5 @@
 require "json"
+require "./vowel_harmony"
 
 module WordMage
   # Represents aggregate analysis of multiple words.
@@ -64,6 +65,9 @@ module WordMage
     # Most common syllable patterns
     property dominant_patterns : Array(String)
 
+    # Vowel transition frequencies: vowel -> {next_vowel -> frequency}
+    property vowel_transitions : Hash(String, Hash(String, Float32))
+
     # Creates a new Analysis with specified parameters.
     def initialize(@phoneme_frequencies : Hash(String, Float32) = Hash(String, Float32).new,
                    @positional_frequencies : Hash(String, Hash(String, Float32)) = Hash(String, Hash(String, Float32)).new,
@@ -78,7 +82,8 @@ module WordMage
                    @recommended_budget : Int32 = 6,
                    @recommended_templates : Array(String) = [] of String,
                    @recommended_hiatus_probability : Float32 = 0.2_f32,
-                   @dominant_patterns : Array(String) = [] of String)
+                   @dominant_patterns : Array(String) = [] of String,
+                   @vowel_transitions : Hash(String, Hash(String, Float32)) = Hash(String, Hash(String, Float32)).new)
     end
 
     # Returns the most frequent phonemes in order.
@@ -249,6 +254,101 @@ module WordMage
       lines << "Phoneme diversity: #{phoneme_diversity.round(2)}"
       
       lines.join("\n")
+    end
+
+    # Returns the most preferred vowel transitions.
+    #
+    # ## Parameters
+    # - `from_vowel`: The source vowel
+    # - `count`: Number of top transitions to return (default: 3)
+    #
+    # ## Returns
+    # Array of {vowel, frequency} tuples ordered by frequency
+    def preferred_transitions(from_vowel : String, count : Int32 = 3) : Array({String, Float32})
+      return [] of {String, Float32} unless @vowel_transitions[from_vowel]?
+      
+      @vowel_transitions[from_vowel].to_a
+        .sort_by { |_, freq| -freq }
+        .first(count)
+    end
+
+    # Generates a VowelHarmony configuration from the transition data.
+    #
+    # ## Parameters
+    # - `strength`: Harmony strength (0.0-1.0)
+    # - `threshold`: Minimum frequency to include in rules (default: 0.1)
+    #
+    # ## Returns
+    # VowelHarmony instance configured from analysis
+    def generate_vowel_harmony(strength : Float32 = 0.7_f32, threshold : Float32 = 0.1_f32) : VowelHarmony
+      harmony_rules = Hash(String, Hash(String, Float32)).new
+      
+      @vowel_transitions.each do |from_vowel, transitions|
+        # Only include transitions above threshold
+        significant_transitions = transitions.select { |_, freq| freq >= threshold }
+        
+        if !significant_transitions.empty?
+          harmony_rules[from_vowel] = significant_transitions
+        end
+      end
+      
+      VowelHarmony.new(harmony_rules, strength)
+    end
+
+    # Calculates vowel transition diversity.
+    #
+    # ## Returns
+    # Float32 representing how diverse vowel transitions are
+    def vowel_transition_diversity : Float32
+      return 0.0_f32 if @vowel_transitions.empty?
+      
+      total_entropy = 0.0_f32
+      vowel_count = 0
+      
+      @vowel_transitions.each do |_, transitions|
+        next if transitions.empty?
+        
+        # Calculate entropy for this vowel's transitions
+        entropy = 0.0_f32
+        transitions.each do |_, freq|
+          next if freq <= 0
+          entropy -= freq * Math.log2(freq)
+        end
+        
+        total_entropy += entropy
+        vowel_count += 1
+      end
+      
+      vowel_count > 0 ? total_entropy / vowel_count : 0.0_f32
+    end
+
+    # Checks if the language shows strong vowel harmony patterns.
+    #
+    # ## Returns
+    # Symbol indicating harmony strength (`:none`, `:weak`, `:moderate`, `:strong`)
+    def vowel_harmony_strength : Symbol
+      return :none if @vowel_transitions.empty?
+      
+      strong_patterns = 0
+      total_patterns = 0
+      
+      @vowel_transitions.each do |_, transitions|
+        transitions.each do |_, freq|
+          total_patterns += 1
+          strong_patterns += 1 if freq > 0.6_f32
+        end
+      end
+      
+      return :none if total_patterns == 0
+      
+      strength_ratio = strong_patterns.to_f32 / total_patterns.to_f32
+      
+      case strength_ratio
+      when 0.0...0.2 then :none
+      when 0.2...0.4 then :weak
+      when 0.4...0.7 then :moderate
+      else :strong
+      end
     end
 
     # Validates the analysis data for consistency.
