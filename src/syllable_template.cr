@@ -45,13 +45,20 @@ module WordMage
     # ## Parameters
     # - `phonemes`: PhonemeSet to sample from
     # - `position`: Syllable position (`:initial`, `:medial`, `:final`)
+    # - `retry_count`: Internal parameter to limit recursion depth
     #
     # ## Returns
     # Array of phoneme strings forming the syllable
     #
     # ## Note
-    # Automatically retries if constraints are violated
-    def generate(phonemes : PhonemeSet, position : Symbol) : Array(String)
+    # Automatically retries if constraints are violated, up to a maximum retry limit
+    def generate(phonemes : PhonemeSet, position : Symbol, retry_count : Int32 = 0) : Array(String)
+      # Prevent infinite recursion by limiting retry attempts
+      max_retries = 10
+      if retry_count >= max_retries
+        # Fall back to a simplified pattern after too many retries
+        return generate_fallback(phonemes, position)
+      end
       # Check if pattern has multiple consonants that would be adjacent
       if has_adjacent_consonants?
         # Multiple consonants patterns require explicit cluster definitions
@@ -82,9 +89,12 @@ module WordMage
               syllable << phonemes.sample_phoneme(:vowel, position)
             end
           else
-            # Handle custom symbols
-            if phonemes.has_custom_group?(symbol)
-              if allows_hiatus? && phonemes.is_vowel_like_group?(symbol) && Random.rand < @hiatus_probability
+            # Handle custom symbols - cache the result of has_custom_group? to avoid repeated calls
+            has_custom_group = phonemes.has_custom_group?(symbol)
+            if has_custom_group
+              # Cache the result of is_vowel_like_group? to avoid repeated calls
+              is_vowel_like = allows_hiatus? && phonemes.is_vowel_like_group?(symbol)
+              if is_vowel_like && Random.rand < @hiatus_probability
                 # Generate hiatus for vowel-like custom groups
                 first_phoneme = phonemes.sample_phoneme(symbol, position)
                 syllable << first_phoneme
@@ -108,15 +118,21 @@ module WordMage
       end
 
       # Retry if constraints violated or has illegal sequences
-      if validate(syllable) && !has_illegal_adjacent_consonants?(syllable)
+      if validate(syllable) && !has_illegal_adjacent_consonants?(syllable, phonemes)
         syllable
       else
-        generate(phonemes, position)
+        generate(phonemes, position, retry_count + 1)
       end
     end
 
     # Generates syllable using allowed clusters
-    private def generate_with_clusters(phonemes : PhonemeSet, position : Symbol) : Array(String)
+    private def generate_with_clusters(phonemes : PhonemeSet, position : Symbol, retry_count : Int32 = 0) : Array(String)
+      # Prevent infinite recursion by limiting retry attempts
+      max_retries = 10
+      if retry_count >= max_retries
+        # Fall back to a simplified pattern after too many retries
+        return generate_fallback(phonemes, position)
+      end
       available_consonants = phonemes.get_consonants(position).to_set
       syllable = [] of String
       
@@ -208,7 +224,7 @@ module WordMage
       if validate(syllable)
         syllable
       else
-        generate_with_clusters(phonemes, position)
+        generate_with_clusters(phonemes, position, retry_count + 1)
       end
     end
 
@@ -392,7 +408,7 @@ module WordMage
     end
 
     # Checks if syllable has illegal adjacent consonants (not in defined clusters)
-    private def has_illegal_adjacent_consonants?(syllable : Array(String)) : Bool
+    private def has_illegal_adjacent_consonants?(syllable : Array(String), phoneme_set : PhonemeSet? = nil) : Bool
       return false if syllable.size < 2
       
       # Find all adjacent consonant pairs
@@ -401,7 +417,7 @@ module WordMage
         next_phoneme = syllable[i+1]
         
         # Skip if not both consonants
-        next if is_vowel?(current) || is_vowel?(next_phoneme)
+        next if is_vowel?(current, phoneme_set) || is_vowel?(next_phoneme, phoneme_set)
         
         # We have adjacent consonants - check if they're in allowed clusters
         cluster = current + next_phoneme
@@ -424,7 +440,12 @@ module WordMage
     end
 
     # Helper method to check if phoneme is vowel
-    private def is_vowel?(phoneme : String) : Bool
+    # Delegates to PhonemeSet for accurate vowel detection including custom groups
+    private def is_vowel?(phoneme : String, phoneme_set : PhonemeSet? = nil) : Bool
+      # If phoneme_set is provided, use its knowledge of vowels
+      return phoneme_set.is_vowel?(phoneme) if phoneme_set
+      
+      # Fallback to basic vowel detection when no phoneme_set is available
       %w[i u y ɑ ɔ ɛ a e o].includes?(phoneme)
     end
   end

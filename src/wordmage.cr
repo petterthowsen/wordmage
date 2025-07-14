@@ -9,6 +9,7 @@ require "./word_analyzer"
 require "./analysis"
 require "./analyzer"
 require "./vowel_harmony"
+require "./IPA/ipa"
 
 module WordMage
   VERSION = "0.4.1"
