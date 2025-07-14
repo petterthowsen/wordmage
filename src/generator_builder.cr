@@ -1,3 +1,6 @@
+require "./analysis"
+require "./analyzer"
+
 module WordMage
   # Fluent API for configuring and building Generator instances.
   #
@@ -25,6 +28,7 @@ module WordMage
     @romanizer : RomanizationMap?
     @mode : GenerationMode?
     @max_words : Int32?
+    @complexity_budget : Int32?
 
     # Creates a new GeneratorBuilder instance.
     #
@@ -173,6 +177,88 @@ module WordMage
       self
     end
 
+    # Sets the complexity budget for controlling word complexity.
+    #
+    # ## Parameters
+    # - `budget`: Complexity budget points (typical range: 3-12)
+    #   - 3-5: Simple, melodic words
+    #   - 6-8: Moderate complexity
+    #   - 9-12: Complex words with clusters and hiatus
+    #
+    # ## Returns
+    # Self for method chaining
+    #
+    # ## Note
+    # Complexity budget controls clusters, hiatus, and vowel diversity.
+    # When budget is exhausted, generator creates more melodic patterns.
+    def with_complexity_budget(budget : Int32)
+      @complexity_budget = budget
+      self
+    end
+
+    # Applies an analysis to configure the generator.
+    #
+    # ## Parameters
+    # - `analysis`: Analysis instance containing language patterns
+    #
+    # ## Returns
+    # Self for method chaining
+    #
+    # ## Note
+    # This method applies phoneme weights, syllable patterns, complexity budget,
+    # and other settings derived from the analysis.
+    def with_analysis(analysis : Analysis)
+      # Apply phoneme weights from frequency analysis
+      analysis.phoneme_frequencies.each do |phoneme, frequency|
+        # Convert frequency to weight (scale up for more impact)
+        weight = frequency * 10.0_f32
+        if @phoneme_set
+          @phoneme_set.not_nil!.add_weight(phoneme, weight)
+        end
+      end
+      
+      # Apply complexity budget from analysis
+      @complexity_budget = analysis.recommended_budget
+      
+      # Create syllable templates from recommended patterns
+      if analysis.recommended_templates.size > 0
+        templates = analysis.recommended_templates.map do |pattern|
+          SyllableTemplate.new(pattern, hiatus_probability: analysis.recommended_hiatus_probability)
+        end
+        @syllable_templates = templates
+      end
+      
+      # Apply syllable count distribution
+      if analysis.syllable_count_distribution.size > 0
+        @syllable_count = SyllableCountSpec.weighted(analysis.syllable_count_distribution)
+      end
+      
+      self
+    end
+
+    # Convenience method to analyze words and apply the results.
+    #
+    # ## Parameters
+    # - `words`: Array of romanized words to analyze
+    #
+    # ## Returns
+    # Self for method chaining
+    #
+    # ## Note
+    # This method uses the existing romanization map to analyze the words
+    # and applies the results to the generator configuration.
+    #
+    # ## Raises
+    # Raises if no romanization map has been set
+    def with_analysis_of_words(words : Array(String))
+      romanizer = @romanizer || raise "No romanization map set. Use with_romanization() first."
+      
+      analyzer = Analyzer.new(romanizer)
+      analysis = analyzer.analyze(words)
+      
+      with_analysis(analysis)
+    end
+
     # Builds the final Generator instance.
     #
     # ## Returns
@@ -193,7 +279,8 @@ module WordMage
         word_spec: word_spec,
         romanizer: @romanizer || RomanizationMap.new,
         mode: @mode || GenerationMode::Random,
-        max_words: @max_words || 1000
+        max_words: @max_words || 1000,
+        complexity_budget: @complexity_budget
       )
     end
   end

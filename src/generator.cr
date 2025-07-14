@@ -33,6 +33,8 @@ module WordMage
     property romanizer : RomanizationMap
     property mode : GenerationMode
     property max_words : Int32
+    property complexity_budget : Int32?
+    property hiatus_escalation_factor : Float32
 
     @sequential_state : Hash(String, Int32)?
 
@@ -44,7 +46,8 @@ module WordMage
     # - `romanizer`: RomanizationMap for converting phonemes to text
     # - `mode`: GenerationMode (Random, Sequential, or WeightedRandom)
     # - `max_words`: Maximum words for sequential mode (default: 1000)
-    def initialize(@phoneme_set : PhonemeSet, @word_spec : WordSpec, @romanizer : RomanizationMap, @mode : GenerationMode, @max_words : Int32 = 1000)
+    # - `complexity_budget`: Optional complexity budget for melodic control
+    def initialize(@phoneme_set : PhonemeSet, @word_spec : WordSpec, @romanizer : RomanizationMap, @mode : GenerationMode, @max_words : Int32 = 1000, @complexity_budget : Int32? = nil)
       @sequential_state = nil
     end
 
@@ -165,6 +168,58 @@ module WordMage
     end
 
     private def generate_with_syllable_count_and_starting_type(syllable_count : Int32, starting_type : Symbol?) : String
+      # Use complexity budget if available
+      if budget = @complexity_budget
+        generate_with_complexity_budget(syllable_count, starting_type, budget)
+      else
+        generate_without_complexity_budget(syllable_count, starting_type)
+      end
+    end
+
+    # Generates words with complexity budget tracking
+    private def generate_with_complexity_budget(syllable_count : Int32, starting_type : Symbol?, initial_budget : Int32) : String
+      syllables = [] of Array(String)
+      used_vowels = Set(String).new
+      remaining_budget = initial_budget
+      
+      (0...syllable_count).each do |i|
+        position = case i
+                   when 0 then :initial
+                   when syllable_count - 1 then :final
+                   else :medial
+                   end
+
+        # Select template and generate syllable with budget constraints
+        template = if remaining_budget > 0
+                     @word_spec.select_template(position)
+                   else
+                     # Budget exhausted - use simple CV pattern only
+                     select_simple_template(position)
+                   end
+
+        syllable = generate_syllable_with_budget(template, position, used_vowels, remaining_budget)
+        syllables << syllable
+        
+        # Calculate complexity cost and update budget
+        cost = calculate_complexity_cost(syllable, template)
+        remaining_budget = [0, remaining_budget - cost].max
+        
+        # Track vowels used
+        syllable.each { |phoneme| used_vowels.add(phoneme) if @phoneme_set.is_vowel?(phoneme) }
+      end
+
+      phonemes = syllables.flatten
+
+      # Check word-level constraints, starting type, and phonological issues
+      if @word_spec.validate_word(phonemes) && matches_starting_type_override?(phonemes, starting_type) && !has_syllable_boundary_gemination?(syllables) && !has_excessive_vowel_sequences?(phonemes) && !has_vowel_gemination?(phonemes)
+        @romanizer.romanize(phonemes)
+      else
+        generate_with_complexity_budget(syllable_count, starting_type, initial_budget) # Retry
+      end
+    end
+
+    # Original generation without complexity budget
+    private def generate_without_complexity_budget(syllable_count : Int32, starting_type : Symbol?) : String
       syllables = [] of Array(String)
 
       (0...syllable_count).each do |i|
@@ -184,8 +239,107 @@ module WordMage
       if @word_spec.validate_word(phonemes) && matches_starting_type_override?(phonemes, starting_type) && !has_syllable_boundary_gemination?(syllables) && !has_excessive_vowel_sequences?(phonemes)
         @romanizer.romanize(phonemes)
       else
-        generate_with_syllable_count_and_starting_type(syllable_count, starting_type) # Retry
+        generate_without_complexity_budget(syllable_count, starting_type) # Retry
       end
+    end
+
+    # Generates syllable respecting budget constraints
+    private def generate_syllable_with_budget(template : SyllableTemplate, position : Symbol, used_vowels : Set(String), remaining_budget : Int32) : Array(String)
+      if remaining_budget <= 2
+        # Low budget - use vowel harmony and simple patterns
+        generate_melodic_syllable(template, position, used_vowels)
+      else
+        # Normal generation with budget
+        template.generate(@phoneme_set, position)
+      end
+    end
+
+    # Generates simple, melodic syllables when budget is low
+    private def generate_melodic_syllable(template : SyllableTemplate, position : Symbol, used_vowels : Set(String)) : Array(String)
+      syllable = [] of String
+      
+      # Use simpler pattern - convert complex patterns to basic CV
+      # Fix: More careful pattern simplification
+      simplified_pattern = case template.pattern
+                          when /^C+V+C*$/ then "CV"  # Any CCV+ becomes CV
+                          when /^V+C*$/ then "V"     # Any VCC+ becomes V
+                          else "CV"                  # Default fallback
+                          end
+      
+      simplified_pattern.each_char do |symbol|
+        case symbol
+        when 'C'
+          syllable << @phoneme_set.sample_phoneme(:consonant, position)
+        when 'V'
+          # Reuse existing vowels for harmony, but avoid recent duplicates
+          if !used_vowels.empty? && Random.rand < 0.6
+            # Avoid same vowel as the last phoneme if possible
+            available_vowels = used_vowels.to_a
+            if !syllable.empty? && @phoneme_set.is_vowel?(syllable.last)
+              available_vowels = available_vowels.reject { |v| v == syllable.last }
+              available_vowels = used_vowels.to_a if available_vowels.empty?
+            end
+            syllable << available_vowels.sample
+          else
+            syllable << @phoneme_set.sample_phoneme(:vowel, position)
+          end
+        end
+      end
+      
+      syllable
+    end
+
+    # Calculates complexity cost of a syllable
+    private def calculate_complexity_cost(syllable : Array(String), template : SyllableTemplate) : Int32
+      cost = 0
+      
+      # Count clusters (adjacent consonants)
+      consonant_clusters = count_consonant_clusters(syllable)
+      cost += consonant_clusters * 3  # 3 points per cluster
+      
+      # Count hiatus (adjacent vowels)
+      vowel_sequences = count_vowel_sequences(syllable)
+      cost += vowel_sequences * 2  # 2 points per hiatus
+      
+      # Complex codas (CC at end)
+      if template.pattern.ends_with?("CC")
+        cost += 2
+      end
+      
+      cost
+    end
+
+    # Counts consonant clusters in syllable
+    private def count_consonant_clusters(syllable : Array(String)) : Int32
+      return 0 if syllable.size < 2
+      
+      clusters = 0
+      (0...syllable.size-1).each do |i|
+        if !@phoneme_set.is_vowel?(syllable[i]) && !@phoneme_set.is_vowel?(syllable[i+1])
+          clusters += 1
+        end
+      end
+      clusters
+    end
+
+    # Counts vowel sequences (hiatus) in syllable
+    private def count_vowel_sequences(syllable : Array(String)) : Int32
+      return 0 if syllable.size < 2
+      
+      sequences = 0
+      (0...syllable.size-1).each do |i|
+        if @phoneme_set.is_vowel?(syllable[i]) && @phoneme_set.is_vowel?(syllable[i+1])
+          sequences += 1
+        end
+      end
+      sequences
+    end
+
+    # Selects simple template when budget is exhausted
+    private def select_simple_template(position : Symbol) : SyllableTemplate
+      # Return a simple CV template
+      simple_template = @word_spec.syllable_templates.find { |t| t.pattern == "CV" }
+      simple_template || @word_spec.syllable_templates.first
     end
 
     # Checks if there's gemination or problematic vowel sequences across syllable boundaries
@@ -250,6 +404,23 @@ module WordMage
           return true if vowel_count >= 3  # Found 3+ consecutive vowels
         else
           vowel_count = 0
+        end
+      end
+      
+      false
+    end
+
+    # Checks if the word has vowel gemination (identical adjacent vowels)
+    private def has_vowel_gemination?(phonemes : Array(String)) : Bool
+      return false if phonemes.size < 2
+      
+      (0...phonemes.size-1).each do |i|
+        current = phonemes[i]
+        next_phoneme = phonemes[i+1]
+        
+        # Check for identical adjacent vowels
+        if @phoneme_set.is_vowel?(current) && current == next_phoneme
+          return true
         end
       end
       
