@@ -6,13 +6,25 @@ WordMage is a Crystal library for generating words for constructed languages (co
 
 ## Key Features
 
+### Core Generation
 - **Phoneme-based generation** with consonants, vowels, and positional constraints
 - **Syllable templates** supporting patterns like CV, CVC, CCV with hiatus (vowel sequences)
 - **Multiple generation modes**: Random, Sequential, and Weighted Random
 - **Flexible syllable counts**: Exact, range, or weighted distributions
-- **Word constraints** to prevent unwanted phoneme sequences
 - **Romanization mapping** for converting phonemes to written form
 - **Fluent builder API** for easy configuration
+
+### Advanced Constraints
+- **Thematic vowel constraints** - Force last vowel to be specific (e.g., "thranas", "kona", "tenask")
+- **Sequence constraints** - Words starting/ending with specific sequences (e.g., "thra" → "thraesy", words ending in "ath")
+- **Word-level constraints** to prevent unwanted phoneme sequences
+- **Constraint composition** - Multiple constraints work together seamlessly
+
+### Phonological Features
+- **Gemination** - Configurable consonant doubling with probability control
+- **Vowel lengthening** - Configurable vowel doubling for emphasis
+- **Automatic detection** - Analyzer detects gemination and lengthening patterns in existing words
+- **Statistical analysis** - Frequency analysis of phonological features
 
 ## Project Structure
 
@@ -21,10 +33,15 @@ src/
     wordmage.cr           # Main module file with requires
     phoneme_set.cr        # Phoneme management with positional rules
     syllable_template.cr  # Syllable patterns and hiatus generation
-    word_spec.cr          # Word specifications and syllable counting
+    word_spec.cr          # Word specifications and constraint validation
     romanization_map.cr   # Phoneme-to-text conversion
-    generator.cr          # Main generation engine
+    generator.cr          # Main generation engine with phonological features
     generator_builder.cr  # Fluent configuration API
+    word_analyzer.cr      # Individual word analysis and feature detection
+    analyzer.cr           # Aggregate analysis of word collections
+    word_analysis.cr      # Data structure for individual word analysis
+    analysis.cr           # Data structure for aggregate analysis
+    vowel_harmony.cr      # Vowel harmony rule system
 
 spec/
     spec_helper.cr        # Spec configuration
@@ -35,18 +52,27 @@ spec/
     romanization_map_spec.cr   # RomanizationMap tests
     generator_spec.cr     # Generator engine tests
     generator_builder_spec.cr  # Builder API tests
+    cluster_spec.cr       # Cluster analysis tests
 ```
 
 ## Architecture Overview
 
 The library follows a clean separation of concerns:
 
+### Core Generation
 1. **PhonemeSet** - Manages consonants/vowels with positional constraints and weights
 2. **SyllableTemplate** - Defines syllable patterns (CV, CVC, etc.) with constraints and hiatus
-3. **WordSpec** - Specifies word requirements (syllable count, starting type, constraints)
+3. **WordSpec** - Specifies word requirements (syllable count, constraints, thematic vowels, sequences)
 4. **RomanizationMap** - Converts phonemes to written form
-5. **Generator** - Main engine that combines all components to generate words
+5. **Generator** - Main engine with phonological features (gemination, vowel lengthening)
 6. **GeneratorBuilder** - Fluent API for easy configuration
+
+### Analysis & Detection
+7. **WordAnalyzer** - Analyzes individual words for phonological features
+8. **Analyzer** - Performs aggregate analysis across word collections
+9. **WordAnalysis** - Data structure containing individual word metrics
+10. **Analysis** - Data structure containing aggregate statistics and recommendations
+11. **VowelHarmony** - Implements vowel harmony constraint systems
 
 ## Test Structure
 
@@ -61,7 +87,12 @@ The test suite has **96 tests** covering all functionality:
   - Consonant clusters like "spro", "spra"
   - Weighted phoneme sampling
   - Sequential vs random generation
-  - Complex constraint validation
+  - **Thematic vowel constraints** ("thranas", "kona", "tenask")
+  - **Sequence constraints** (starts with "thra", ends with "ath")
+  - **Gemination generation** (consonant doubling)
+  - **Vowel lengthening** (vowel doubling)
+  - **Phonological feature detection** in analysis
+  - **Complex constraint combinations**
 
 ## Running Tests
 
@@ -72,6 +103,7 @@ crystal spec spec/generator_spec.cr  # Run specific test file
 
 ## Example Usage
 
+### Basic Generation
 ```crystal
 # Generate vowel-initial words with 2-3 syllables
 generator = WordMage::GeneratorBuilder.create
@@ -82,6 +114,48 @@ generator = WordMage::GeneratorBuilder.create
   .build
 
 word = generator.generate  # "arek", "itopa", etc.
+```
+
+### Advanced Constraints & Phonological Features
+```crystal
+# Generate words with complex constraints and phonological features
+generator = WordMage::GeneratorBuilder.create
+  .with_phonemes(["t", "n", "k", "r", "l", "s"], ["a", "e", "i", "o"])
+  .with_syllable_patterns(["CV", "CVC", "CCV"])
+  .with_syllable_count(WordMage::SyllableCountSpec.range(2, 4))
+  .with_thematic_vowel("a")              # Last vowel must be 'a'
+  .starting_with_sequence("thr")         # Words start with "thr"
+  .ending_with_sequence("ath")           # Words end with "ath"
+  .with_gemination_probability(0.2)      # 20% consonant doubling
+  .with_vowel_lengthening_probability(0.1) # 10% vowel lengthening
+  .build
+
+word = generator.generate  # "thrennorath", "thrasillath", etc.
+```
+
+### Word Analysis & Detection
+```crystal
+# Analyze existing words for phonological patterns
+romanization = {"t" => "t", "n" => "n", "a" => "ɑ", "e" => "ɛ"}
+analyzer = WordMage::Analyzer.new(WordMage::RomanizationMap.new(romanization))
+
+words = ["tenna", "kaara", "silloot", "normal"]
+analysis = analyzer.analyze(words)
+
+puts analysis.gemination_patterns      # {"nn" => 0.33, "ll" => 0.33}
+puts analysis.vowel_lengthening_patterns # {"ɑɑ" => 0.67, "ɔɔ" => 0.33}
+puts analysis.recommended_budget       # 8
+```
+
+### Convenience Methods
+```crystal
+# Enable/disable phonological features easily
+generator = WordMage::GeneratorBuilder.create
+  .with_phonemes(["t", "n", "k"], ["a", "e", "i"])
+  .with_syllable_patterns(["CV", "CVC"])
+  .enable_gemination                    # 100% gemination
+  .disable_vowel_lengthening           # 0% vowel lengthening
+  .build
 ```
 
 ## Development Commands
@@ -95,9 +169,11 @@ crystal run example.cr  # Run comprehensive examples
 ## Design Principles
 
 - **Composable**: Each component has a single responsibility
-- **Flexible**: Supports complex linguistic patterns and constraints
+- **Flexible**: Supports complex linguistic patterns, constraints, and phonological features
 - **Testable**: Comprehensive test coverage with clear boundaries
-- **Ergonomic**: Fluent API makes common tasks simple
-- **Extensible**: Easy to add new patterns and generation modes
+- **Ergonomic**: Fluent API makes common tasks simple, complex tasks possible
+- **Extensible**: Easy to add new patterns, constraints, and generation modes
+- **Analytical**: Built-in analysis and detection of phonological patterns
+- **Constraint-aware**: Multiple constraints work together harmoniously
 
-The library is designed to be both powerful for complex conlang needs and simple for basic word generation tasks.
+The library is designed to be both powerful for complex conlang needs and simple for basic word generation tasks. With the new constraint and phonological systems, it can handle sophisticated linguistic requirements while maintaining ease of use.

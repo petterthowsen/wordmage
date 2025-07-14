@@ -36,6 +36,8 @@ module WordMage
     property complexity_budget : Int32?
     property hiatus_escalation_factor : Float32 = 1.0
     property vowel_harmony : VowelHarmony?
+    property gemination_probability : Float32 = 0.0
+    property vowel_lengthening_probability : Float32 = 0.0
 
     @sequential_state : Hash(String, Int32)?
 
@@ -50,7 +52,9 @@ module WordMage
     # - `complexity_budget`: Optional complexity budget for melodic control
     # - `hiatus_escalation_factor`: Multiplier for hiatus cost as more appear (default: 1.5)
     # - `vowel_harmony`: Optional vowel harmony rules
-    def initialize(@phoneme_set : PhonemeSet, @word_spec : WordSpec, @romanizer : RomanizationMap, @mode : GenerationMode, @max_words : Int32 = 1000, @complexity_budget : Int32? = nil, @hiatus_escalation_factor : Float32 = 1.5_f32, @vowel_harmony : VowelHarmony? = nil)
+    # - `gemination_probability`: Probability (0.0-1.0) of consonant gemination (default: 0.0)
+    # - `vowel_lengthening_probability`: Probability (0.0-1.0) of vowel lengthening (default: 0.0)
+    def initialize(@phoneme_set : PhonemeSet, @word_spec : WordSpec, @romanizer : RomanizationMap, @mode : GenerationMode, @max_words : Int32 = 1000, @complexity_budget : Int32? = nil, @hiatus_escalation_factor : Float32 = 1.5_f32, @vowel_harmony : VowelHarmony? = nil, @gemination_probability : Float32 = 0.0_f32, @vowel_lengthening_probability : Float32 = 0.0_f32)
       @sequential_state = nil
     end
 
@@ -187,7 +191,28 @@ module WordMage
       remaining_budget = initial_budget.to_f32
       hiatus_count = 0
       
-      (0...syllable_count).each do |i|
+      # Handle starts_with constraint by generating prefix first
+      prefix_phonemes = @word_spec.get_required_prefix
+      if !prefix_phonemes.empty?
+        # Add prefix as initial phonemes
+        first_syllable = prefix_phonemes.dup
+        syllables << first_syllable
+        
+        # Track prefix vowels and consonants for harmony
+        prefix_phonemes.each do |phoneme|
+          if @phoneme_set.is_vowel?(phoneme)
+            used_vowels.add(phoneme)
+            vowel_sequence << phoneme
+          end
+        end
+        
+        # Calculate cost of prefix (fixed cost of 1 to account for the constraint)
+        remaining_budget = [0.0_f32, remaining_budget - 1.0_f32].max
+      end
+      
+      start_index = prefix_phonemes.empty? ? 0 : 1  # Skip first syllable if prefix exists
+      
+      (start_index...syllable_count).each do |i|
         position = case i
                    when 0 then :initial
                    when syllable_count - 1 then :final
@@ -223,11 +248,106 @@ module WordMage
 
       phonemes = syllables.flatten
 
+      # Apply gemination if enabled
+      if @gemination_probability > 0.0
+        phonemes = apply_gemination(phonemes)
+      end
+
+      # Apply vowel lengthening if enabled
+      if @vowel_lengthening_probability > 0.0
+        phonemes = apply_vowel_lengthening(phonemes)
+      end
+
       # Check word-level constraints, starting type, and phonological issues
       if @word_spec.validate_word(phonemes) && matches_starting_type_override?(phonemes, starting_type) && !has_syllable_boundary_gemination?(syllables) && !has_excessive_vowel_sequences?(phonemes) && !has_vowel_gemination?(phonemes)
         @romanizer.romanize(phonemes)
       else
-        generate_with_complexity_budget(syllable_count, starting_type, initial_budget) # Retry
+        generate_with_complexity_budget_with_retries(syllable_count, starting_type, initial_budget, 0) # Retry with limit
+      end
+    end
+
+    # Generate with complexity budget and retry limit
+    private def generate_with_complexity_budget_with_retries(syllable_count : Int32, starting_type : Symbol?, initial_budget : Int32, retries : Int32) : String
+      return generate_fallback_word if retries >= 50  # Fallback after too many retries
+      
+      syllables = [] of Array(String)
+      used_vowels = Set(String).new
+      vowel_sequence = [] of String  # Track vowel sequence for harmony
+      remaining_budget = initial_budget.to_f32
+      hiatus_count = 0
+      
+      # Handle starts_with constraint by generating prefix first
+      prefix_phonemes = @word_spec.get_required_prefix
+      if !prefix_phonemes.empty?
+        # Add prefix as initial phonemes
+        first_syllable = prefix_phonemes.dup
+        syllables << first_syllable
+        
+        # Track prefix vowels and consonants for harmony
+        prefix_phonemes.each do |phoneme|
+          if @phoneme_set.is_vowel?(phoneme)
+            used_vowels.add(phoneme)
+            vowel_sequence << phoneme
+          end
+        end
+        
+        # Calculate cost of prefix (fixed cost of 1 to account for the constraint)
+        remaining_budget = [0.0_f32, remaining_budget - 1.0_f32].max
+      end
+      
+      start_index = prefix_phonemes.empty? ? 0 : 1  # Skip first syllable if prefix exists
+      
+      (start_index...syllable_count).each do |i|
+        position = case i
+                   when 0 then :initial
+                   when syllable_count - 1 then :final
+                   else :medial
+                   end
+
+        # Select template and generate syllable with budget constraints
+        template = if remaining_budget > 0
+                     @word_spec.select_template(position)
+                   else
+                     # Budget exhausted - use simple CV pattern only
+                     select_simple_template(position)
+                   end
+
+        syllable = generate_syllable_with_budget_and_harmony(template, position, used_vowels, vowel_sequence, remaining_budget.to_i)
+        syllables << syllable
+        
+        # Calculate complexity cost with hiatus escalation
+        cost = calculate_complexity_cost_with_escalation(syllable, template, hiatus_count)
+        remaining_budget = [0.0_f32, remaining_budget - cost].max
+        
+        # Track hiatus sequences for escalation
+        hiatus_count += count_vowel_sequences(syllable)
+        
+        # Track vowels used and vowel sequence
+        syllable.each do |phoneme|
+          if @phoneme_set.is_vowel?(phoneme)
+            used_vowels.add(phoneme)
+            vowel_sequence << phoneme
+          end
+        end
+      end
+
+      phonemes = syllables.flatten
+
+      # Apply gemination if enabled
+      if @gemination_probability > 0.0
+        phonemes = apply_gemination(phonemes)
+      end
+
+      # Apply vowel lengthening if enabled
+      if @vowel_lengthening_probability > 0.0
+        phonemes = apply_vowel_lengthening(phonemes)
+      end
+
+      # Check word-level constraints, starting type, and phonological issues
+      if @word_spec.validate_word(phonemes) && matches_starting_type_override?(phonemes, starting_type) && !has_syllable_boundary_gemination?(syllables) && !has_excessive_vowel_sequences?(phonemes) && !has_vowel_gemination?(phonemes)
+        @romanizer.romanize(phonemes)
+      else
+        generate_with_complexity_budget_with_retries(syllable_count, starting_type, initial_budget, retries + 1)
       end
     end
 
@@ -235,7 +355,17 @@ module WordMage
     private def generate_without_complexity_budget(syllable_count : Int32, starting_type : Symbol?) : String
       syllables = [] of Array(String)
 
-      (0...syllable_count).each do |i|
+      # Handle starts_with constraint by generating prefix first
+      prefix_phonemes = @word_spec.get_required_prefix
+      if !prefix_phonemes.empty?
+        # Add prefix as initial phonemes
+        first_syllable = prefix_phonemes.dup
+        syllables << first_syllable
+      end
+      
+      start_index = prefix_phonemes.empty? ? 0 : 1  # Skip first syllable if prefix exists
+
+      (start_index...syllable_count).each do |i|
         position = case i
                    when 0 then :initial
                    when syllable_count - 1 then :final
@@ -252,8 +382,136 @@ module WordMage
       if @word_spec.validate_word(phonemes) && matches_starting_type_override?(phonemes, starting_type) && !has_syllable_boundary_gemination?(syllables) && !has_excessive_vowel_sequences?(phonemes)
         @romanizer.romanize(phonemes)
       else
-        generate_without_complexity_budget(syllable_count, starting_type) # Retry
+        # Add retry limit to prevent infinite recursion
+        generate_without_complexity_budget_with_retries(syllable_count, starting_type, 0) 
       end
+    end
+
+    # Generate with retry limit to prevent infinite recursion
+    private def generate_without_complexity_budget_with_retries(syllable_count : Int32, starting_type : Symbol?, retries : Int32) : String
+      return generate_fallback_word if retries >= 50  # Fallback after too many retries
+      
+      syllables = [] of Array(String)
+
+      # Handle starts_with constraint by generating prefix first
+      prefix_phonemes = @word_spec.get_required_prefix
+      if !prefix_phonemes.empty?
+        # Add prefix as initial phonemes
+        first_syllable = prefix_phonemes.dup
+        syllables << first_syllable
+      end
+      
+      start_index = prefix_phonemes.empty? ? 0 : 1  # Skip first syllable if prefix exists
+
+      (start_index...syllable_count).each do |i|
+        position = case i
+                   when 0 then :initial
+                   when syllable_count - 1 then :final
+                   else :medial
+                   end
+
+        template = @word_spec.select_template(position)
+        syllables << template.generate(@phoneme_set, position)
+      end
+
+      phonemes = syllables.flatten
+
+      # Apply gemination if enabled
+      if @gemination_probability > 0.0
+        phonemes = apply_gemination(phonemes)
+      end
+
+      # Apply vowel lengthening if enabled
+      if @vowel_lengthening_probability > 0.0
+        phonemes = apply_vowel_lengthening(phonemes)
+      end
+
+      # Check word-level constraints, starting type, and phonological issues
+      if @word_spec.validate_word(phonemes) && matches_starting_type_override?(phonemes, starting_type) && !has_syllable_boundary_gemination?(syllables) && !has_excessive_vowel_sequences?(phonemes)
+        @romanizer.romanize(phonemes)
+      else
+        generate_without_complexity_budget_with_retries(syllable_count, starting_type, retries + 1)
+      end
+    end
+
+    # Fallback word generation when constraints can't be satisfied
+    private def generate_fallback_word : String
+      # Generate a simple CV word as fallback
+      consonants = @phoneme_set.get_consonants
+      vowels = @phoneme_set.get_vowels
+      
+      return "ka" if consonants.empty? || vowels.empty?
+      
+      phonemes = [consonants.sample, vowels.sample]
+      @romanizer.romanize(phonemes)
+    end
+
+    # Applies gemination (consonant doubling) to phonemes based on probability.
+    #
+    # ## Parameters
+    # - `phonemes`: Array of phonemes to potentially geminate
+    #
+    # ## Returns
+    # Array of phonemes with potential gemination applied
+    private def apply_gemination(phonemes : Array(String)) : Array(String)
+      return phonemes if phonemes.size < 2
+      
+      result = [] of String
+      i = 0
+      
+      while i < phonemes.size
+        current_phoneme = phonemes[i]
+        result << current_phoneme
+        
+        # Only geminate consonants that aren't at the end and aren't already doubled
+        if i < phonemes.size - 1 && 
+           !@phoneme_set.is_vowel?(current_phoneme) && 
+           Random.rand < @gemination_probability &&
+           (i == 0 || phonemes[i-1] != current_phoneme) &&  # Not already doubled
+           phonemes[i+1] != current_phoneme  # Next isn't same (avoid triple)
+          
+          # Add the geminated consonant
+          result << current_phoneme
+        end
+        
+        i += 1
+      end
+      
+      result
+    end
+
+    # Applies vowel lengthening (vowel doubling) to phonemes based on probability.
+    #
+    # ## Parameters
+    # - `phonemes`: Array of phonemes to potentially lengthen
+    #
+    # ## Returns
+    # Array of phonemes with potential vowel lengthening applied
+    private def apply_vowel_lengthening(phonemes : Array(String)) : Array(String)
+      return phonemes if phonemes.size < 1
+      
+      result = [] of String
+      i = 0
+      
+      while i < phonemes.size
+        current_phoneme = phonemes[i]
+        result << current_phoneme
+        
+        # Only lengthen vowels that aren't at the end and aren't already doubled
+        if i < phonemes.size - 1 && 
+           @phoneme_set.is_vowel?(current_phoneme) && 
+           Random.rand < @vowel_lengthening_probability &&
+           (i == 0 || phonemes[i-1] != current_phoneme) &&  # Not already doubled
+           phonemes[i+1] != current_phoneme  # Next isn't same (avoid triple)
+          
+          # Add the lengthened vowel
+          result << current_phoneme
+        end
+        
+        i += 1
+      end
+      
+      result
     end
 
     # Generates syllable respecting budget constraints

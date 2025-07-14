@@ -65,6 +65,10 @@ module WordMage
       clusters = detect_clusters(phonemes)
       hiatus_sequences = detect_hiatus(phonemes)
       
+      # Detect gemination and vowel lengthening
+      gemination_sequences = detect_gemination(phonemes)
+      vowel_lengthening_sequences = detect_vowel_lengthening(phonemes)
+      
       # Calculate complexity score
       complexity_score = calculate_complexity(clusters, hiatus_sequences, syllable_patterns)
       
@@ -82,7 +86,9 @@ module WordMage
         syllable_patterns: syllable_patterns,
         clusters: clusters,
         hiatus_sequences: hiatus_sequences,
-        phoneme_positions: phoneme_positions
+        phoneme_positions: phoneme_positions,
+        gemination_sequences: gemination_sequences,
+        vowel_lengthening_sequences: vowel_lengthening_sequences
       )
     end
 
@@ -380,6 +386,78 @@ module WordMage
     # `true` if the phoneme is a consonant, `false` otherwise
     private def is_consonant?(phoneme : String) : Bool
       !is_vowel?(phoneme)
+    end
+
+    # Detects gemination sequences (doubled consonants) in the phoneme array.
+    #
+    # ## Parameters
+    # - `phonemes`: Array of phonemes
+    #
+    # ## Returns
+    # Array of gemination sequence strings
+    private def detect_gemination(phonemes : Array(String)) : Array(String)
+      gemination = [] of String
+      i = 0
+      
+      while i < phonemes.size - 1
+        current = phonemes[i]
+        next_phoneme = phonemes[i + 1]
+        
+        # Check for identical adjacent consonants
+        if is_consonant?(current) && current == next_phoneme
+          # Look ahead to see if there are more of the same consonant
+          sequence = current + next_phoneme
+          j = i + 2
+          
+          while j < phonemes.size && phonemes[j] == current
+            sequence += phonemes[j]
+            j += 1
+          end
+          
+          gemination << sequence
+          i = j  # Skip past the entire sequence
+        else
+          i += 1
+        end
+      end
+      
+      gemination
+    end
+
+    # Detects vowel lengthening sequences (doubled vowels) in the phoneme array.
+    #
+    # ## Parameters
+    # - `phonemes`: Array of phonemes
+    #
+    # ## Returns
+    # Array of vowel lengthening sequence strings
+    private def detect_vowel_lengthening(phonemes : Array(String)) : Array(String)
+      lengthening = [] of String
+      i = 0
+      
+      while i < phonemes.size - 1
+        current = phonemes[i]
+        next_phoneme = phonemes[i + 1]
+        
+        # Check for identical adjacent vowels
+        if is_vowel?(current) && current == next_phoneme
+          # Look ahead to see if there are more of the same vowel
+          sequence = current + next_phoneme
+          j = i + 2
+          
+          while j < phonemes.size && phonemes[j] == current
+            sequence += phonemes[j]
+            j += 1
+          end
+          
+          lengthening << sequence
+          i = j  # Skip past the entire sequence
+        else
+          i += 1
+        end
+      end
+      
+      lengthening
     end
   end
 end

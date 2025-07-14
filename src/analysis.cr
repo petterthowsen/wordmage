@@ -68,6 +68,12 @@ module WordMage
     # Vowel transition frequencies: vowel -> {next_vowel -> frequency}
     property vowel_transitions : Hash(String, Hash(String, Float32))
 
+    # Frequency of gemination patterns
+    property gemination_patterns : Hash(String, Float32)
+
+    # Frequency of vowel lengthening patterns
+    property vowel_lengthening_patterns : Hash(String, Float32)
+
     # Creates a new Analysis with specified parameters.
     def initialize(@phoneme_frequencies : Hash(String, Float32) = Hash(String, Float32).new,
                    @positional_frequencies : Hash(String, Hash(String, Float32)) = Hash(String, Hash(String, Float32)).new,
@@ -83,7 +89,9 @@ module WordMage
                    @recommended_templates : Array(String) = [] of String,
                    @recommended_hiatus_probability : Float32 = 0.2_f32,
                    @dominant_patterns : Array(String) = [] of String,
-                   @vowel_transitions : Hash(String, Hash(String, Float32)) = Hash(String, Hash(String, Float32)).new)
+                   @vowel_transitions : Hash(String, Hash(String, Float32)) = Hash(String, Hash(String, Float32)).new,
+                   @gemination_patterns : Hash(String, Float32) = Hash(String, Float32).new,
+                   @vowel_lengthening_patterns : Hash(String, Float32) = Hash(String, Float32).new)
     end
 
     # Returns the most frequent phonemes in order.

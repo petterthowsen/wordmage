@@ -72,6 +72,12 @@ module WordMage
       # Aggregate vowel transitions
       vowel_transitions = calculate_vowel_transitions(word_analyses)
       
+      # Aggregate gemination patterns
+      gemination_patterns = calculate_gemination_patterns(word_analyses)
+      
+      # Aggregate vowel lengthening patterns
+      vowel_lengthening_patterns = calculate_vowel_lengthening_patterns(word_analyses)
+      
       # Aggregate complexity distribution
       complexity_distribution = calculate_complexity_distribution(word_analyses)
       
@@ -105,7 +111,9 @@ module WordMage
         recommended_templates: recommended_templates,
         recommended_hiatus_probability: recommended_hiatus_probability,
         dominant_patterns: dominant_patterns,
-        vowel_transitions: vowel_transitions
+        vowel_transitions: vowel_transitions,
+        gemination_patterns: gemination_patterns,
+        vowel_lengthening_patterns: vowel_lengthening_patterns
       )
     end
 
@@ -426,6 +434,62 @@ module WordMage
         .sort_by { |_, freq| -freq }
         .first(3)
         .map { |pattern, _| pattern }
+    end
+
+    # Calculates gemination pattern frequencies.
+    #
+    # ## Parameters
+    # - `word_analyses`: Array of WordAnalysis instances
+    #
+    # ## Returns
+    # Hash mapping gemination patterns to their relative frequencies
+    private def calculate_gemination_patterns(word_analyses : Array(WordAnalysis)) : Hash(String, Float32)
+      gemination_counts = Hash(String, Int32).new(0)
+      total_geminations = 0
+      
+      word_analyses.each do |analysis|
+        analysis.gemination_sequences.each do |gemination|
+          gemination_counts[gemination] += 1
+          total_geminations += 1
+        end
+      end
+      
+      return Hash(String, Float32).new if total_geminations == 0
+      
+      patterns = Hash(String, Float32).new
+      gemination_counts.each do |gemination, count|
+        patterns[gemination] = count.to_f32 / total_geminations.to_f32
+      end
+      
+      patterns
+    end
+
+    # Calculates vowel lengthening pattern frequencies.
+    #
+    # ## Parameters
+    # - `word_analyses`: Array of WordAnalysis instances
+    #
+    # ## Returns
+    # Hash mapping vowel lengthening patterns to their relative frequencies
+    private def calculate_vowel_lengthening_patterns(word_analyses : Array(WordAnalysis)) : Hash(String, Float32)
+      lengthening_counts = Hash(String, Int32).new(0)
+      total_lengthenings = 0
+      
+      word_analyses.each do |analysis|
+        analysis.vowel_lengthening_sequences.each do |lengthening|
+          lengthening_counts[lengthening] += 1
+          total_lengthenings += 1
+        end
+      end
+      
+      return Hash(String, Float32).new if total_lengthenings == 0
+      
+      patterns = Hash(String, Float32).new
+      lengthening_counts.each do |lengthening, count|
+        patterns[lengthening] = count.to_f32 / total_lengthenings.to_f32
+      end
+      
+      patterns
     end
   end
 end

@@ -58,6 +58,12 @@ module WordMage
     # Phoneme positions (initial, medial, final)
     property phoneme_positions : Hash(String, Array(Symbol))
 
+    # Gemination sequences found in the word
+    property gemination_sequences : Array(String)
+
+    # Vowel lengthening sequences found in the word
+    property vowel_lengthening_sequences : Array(String)
+
     # Creates a new WordAnalysis.
     #
     # ## Parameters
@@ -72,11 +78,14 @@ module WordMage
     # - `clusters`: Array of consonant clusters
     # - `hiatus_sequences`: Array of hiatus sequences
     # - `phoneme_positions`: Hash mapping phonemes to their positions
+    # - `gemination_sequences`: Array of gemination sequences
+    # - `vowel_lengthening_sequences`: Array of vowel lengthening sequences
     def initialize(@syllable_count : Int32, @consonant_count : Int32, @vowel_count : Int32, 
                    @hiatus_count : Int32, @cluster_count : Int32, @complexity_score : Int32,
                    @phonemes : Array(String), @syllable_patterns : Array(String),
                    @clusters : Array(String) = [] of String, @hiatus_sequences : Array(String) = [] of String,
-                   @phoneme_positions : Hash(String, Array(Symbol)) = Hash(String, Array(Symbol)).new)
+                   @phoneme_positions : Hash(String, Array(Symbol)) = Hash(String, Array(Symbol)).new,
+                   @gemination_sequences : Array(String) = [] of String, @vowel_lengthening_sequences : Array(String) = [] of String)
     end
 
     # Returns the ratio of consonants to vowels.
@@ -111,6 +120,22 @@ module WordMage
     # `true` if the word has vowel sequences, `false` otherwise
     def has_hiatus? : Bool
       @hiatus_count > 0
+    end
+
+    # Checks if the word contains gemination sequences.
+    #
+    # ## Returns
+    # `true` if the word has consonant gemination, `false` otherwise
+    def has_gemination? : Bool
+      !@gemination_sequences.empty?
+    end
+
+    # Checks if the word contains vowel lengthening sequences.
+    #
+    # ## Returns
+    # `true` if the word has vowel lengthening, `false` otherwise
+    def has_vowel_lengthening? : Bool
+      !@vowel_lengthening_sequences.empty?
     end
 
     # Returns the most common syllable pattern.

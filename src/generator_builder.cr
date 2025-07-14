@@ -31,6 +31,11 @@ module WordMage
     @complexity_budget : Int32?
     @hiatus_escalation_factor : Float32?
     @vowel_harmony : VowelHarmony?
+    @thematic_vowel : String?
+    @starts_with : String?
+    @ends_with : String?
+    @gemination_probability : Float32?
+    @vowel_lengthening_probability : Float32?
 
     # Creates a new GeneratorBuilder instance.
     #
@@ -367,6 +372,179 @@ module WordMage
       self
     end
 
+    # Sets a thematic vowel constraint forcing the last vowel to be specific.
+    #
+    # ## Parameters
+    # - `vowel`: The phoneme that must be the last vowel in generated words
+    #
+    # ## Returns
+    # Self for method chaining
+    #
+    # ## Example
+    # ```crystal
+    # .with_thematic_vowel("ɑ")  # All words end with /a/ as last vowel
+    # ```
+    #
+    # ## Note
+    # This creates words like "thranas", "kona", "tenask" where 'a' is always
+    # the final vowel, regardless of other vowels or consonants that follow.
+    def with_thematic_vowel(vowel : String)
+      @thematic_vowel = vowel
+      self
+    end
+
+    # Sets a starting sequence constraint forcing words to begin with specific phonemes.
+    #
+    # ## Parameters
+    # - `sequence`: The romanized sequence that must start all generated words
+    #
+    # ## Returns
+    # Self for method chaining
+    #
+    # ## Example
+    # ```crystal
+    # .starting_with_sequence("thra")  # All words start with "thra"
+    # ```
+    #
+    # ## Note
+    # This creates words like "thraesy", "thranor" where the exact sequence
+    # is preserved at the beginning, then normal generation continues.
+    def starting_with_sequence(sequence : String)
+      @starts_with = sequence
+      self
+    end
+
+    # Sets an ending sequence constraint forcing words to end with specific phonemes.
+    #
+    # ## Parameters
+    # - `sequence`: The romanized sequence that must end all generated words
+    #
+    # ## Returns
+    # Self for method chaining
+    #
+    # ## Example
+    # ```crystal
+    # .ending_with_sequence("ath")  # All words end with "ath"
+    # ```
+    #
+    # ## Note
+    # This creates words like "gorath", "menath" where the exact sequence
+    # is preserved at the end, with normal generation before it.
+    def ending_with_sequence(sequence : String)
+      @ends_with = sequence
+      self
+    end
+
+    # Sets the gemination probability for consonant doubling.
+    #
+    # ## Parameters
+    # - `probability`: Probability (0.0-1.0) of consonant gemination
+    #
+    # ## Returns
+    # Self for method chaining
+    #
+    # ## Example
+    # ```crystal
+    # .with_gemination_probability(0.1)  # 10% chance of consonant doubling
+    # ```
+    #
+    # ## Note
+    # Gemination creates words like "tenna", "korro", "silla" where consonants
+    # are doubled to create emphasis or length. Common in many natural languages.
+    def with_gemination_probability(probability : Float32)
+      @gemination_probability = probability
+      self
+    end
+
+    # Sets the vowel lengthening probability for vowel doubling.
+    #
+    # ## Parameters
+    # - `probability`: Probability (0.0-1.0) of vowel lengthening
+    #
+    # ## Returns
+    # Self for method chaining
+    #
+    # ## Example
+    # ```crystal
+    # .with_vowel_lengthening_probability(0.15)  # 15% chance of vowel lengthening
+    # ```
+    #
+    # ## Note
+    # Vowel lengthening creates words like "kaara", "niilon", "tuuro" where vowels
+    # are doubled to create length or emphasis. Common in languages like Finnish.
+    def with_vowel_lengthening_probability(probability : Float32)
+      @vowel_lengthening_probability = probability
+      self
+    end
+
+    # Enables gemination with maximum probability (100%).
+    #
+    # ## Returns
+    # Self for method chaining
+    #
+    # ## Example
+    # ```crystal
+    # .enable_gemination  # 100% chance of consonant doubling
+    # ```
+    #
+    # ## Note
+    # Convenience method equivalent to `with_gemination_probability(1.0)`.
+    def enable_gemination
+      @gemination_probability = 1.0_f32
+      self
+    end
+
+    # Disables gemination (0% probability).
+    #
+    # ## Returns
+    # Self for method chaining
+    #
+    # ## Example
+    # ```crystal
+    # .disable_gemination  # No consonant doubling
+    # ```
+    #
+    # ## Note
+    # Convenience method equivalent to `with_gemination_probability(0.0)`.
+    def disable_gemination
+      @gemination_probability = 0.0_f32
+      self
+    end
+
+    # Enables vowel lengthening with maximum probability (100%).
+    #
+    # ## Returns
+    # Self for method chaining
+    #
+    # ## Example
+    # ```crystal
+    # .enable_vowel_lengthening  # 100% chance of vowel lengthening
+    # ```
+    #
+    # ## Note
+    # Convenience method equivalent to `with_vowel_lengthening_probability(1.0)`.
+    def enable_vowel_lengthening
+      @vowel_lengthening_probability = 1.0_f32
+      self
+    end
+
+    # Disables vowel lengthening (0% probability).
+    #
+    # ## Returns
+    # Self for method chaining
+    #
+    # ## Example
+    # ```crystal
+    # .disable_vowel_lengthening  # No vowel lengthening
+    # ```
+    #
+    # ## Note
+    # Convenience method equivalent to `with_vowel_lengthening_probability(0.0)`.
+    def disable_vowel_lengthening
+      @vowel_lengthening_probability = 0.0_f32
+      self
+    end
+
     # Builds the final Generator instance.
     #
     # ## Returns
@@ -379,7 +557,10 @@ module WordMage
         syllable_count: @syllable_count.not_nil!,
         starting_type: @starting_type,
         syllable_templates: @syllable_templates.not_nil!,
-        word_constraints: @constraints || [] of String
+        word_constraints: @constraints || [] of String,
+        thematic_vowel: @thematic_vowel,
+        starts_with: @starts_with,
+        ends_with: @ends_with
       )
 
       Generator.new(
@@ -390,7 +571,9 @@ module WordMage
         max_words: @max_words || 1000,
         complexity_budget: @complexity_budget,
         hiatus_escalation_factor: @hiatus_escalation_factor || 1.5_f32,
-        vowel_harmony: @vowel_harmony
+        vowel_harmony: @vowel_harmony,
+        gemination_probability: @gemination_probability || 0.0_f32,
+        vowel_lengthening_probability: @vowel_lengthening_probability || 0.0_f32
       )
     end
   end
