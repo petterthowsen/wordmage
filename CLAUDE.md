@@ -8,6 +8,9 @@ WordMage is a Crystal library for generating words for constructed languages (co
 
 ### Core Generation
 - **Phoneme-based generation** with consonants, vowels, and positional constraints
+- **IPA phoneme system** with full phonetic classification (Phoneme, Vowel, Consonant classes)
+- **Flexible input handling** - methods accept both IPA strings and Phoneme instances
+- **Romanized clustering** - consonant clusters configured using romanized forms, not IPA
 - **Syllable templates** supporting patterns like CV, CVC, CCV with hiatus (vowel sequences)
 - **Multiple generation modes**: Random, Sequential, and Weighted Random
 - **Flexible syllable counts**: Exact, range, or weighted distributions
@@ -42,6 +45,11 @@ src/
     word_analysis.cr      # Data structure for individual word analysis
     analysis.cr           # Data structure for aggregate analysis
     vowel_harmony.cr      # Vowel harmony rule system
+    IPA/
+        phoneme.cr        # Base Phoneme class with IPA symbol and romanization
+        vowel.cr          # Vowel class with height, backness, rounding features
+        consonant.cr      # Consonant class with manner, place, voicing features
+        ipa.cr            # Complete IPA phoneme collection and utility methods
 
 spec/
     spec_helper.cr        # Spec configuration
@@ -67,12 +75,18 @@ The library follows a clean separation of concerns:
 5. **Generator** - Main engine with phonological features (gemination, vowel lengthening)
 6. **GeneratorBuilder** - Fluent API for easy configuration
 
+### IPA Phoneme System
+7. **Phoneme** - Base class for IPA phonemes with symbol and romanization
+8. **Vowel** - Vowel phonemes with height, backness, rounding, and feature detection
+9. **Consonant** - Consonant phonemes with manner, place, voicing, and articulatory features
+10. **IPA::Utils** - Utility methods for phoneme resolution and type checking
+
 ### Analysis & Detection
-7. **WordAnalyzer** - Analyzes individual words for phonological features
-8. **Analyzer** - Performs aggregate analysis across word collections
-9. **WordAnalysis** - Data structure containing individual word metrics
-10. **Analysis** - Data structure containing aggregate statistics and recommendations
-11. **VowelHarmony** - Implements vowel harmony constraint systems
+11. **WordAnalyzer** - Analyzes individual words for phonological features
+12. **Analyzer** - Performs aggregate analysis across word collections
+13. **WordAnalysis** - Data structure containing individual word metrics
+14. **Analysis** - Data structure containing aggregate statistics and recommendations
+15. **VowelHarmony** - Implements vowel harmony constraint systems
 
 ## Test Structure
 
@@ -106,8 +120,9 @@ crystal spec spec/generator_spec.cr  # Run specific test file
 ### Basic Generation
 ```crystal
 # Generate vowel-initial words with 2-3 syllables
+# Methods accept both IPA strings and Phoneme instances
 generator = WordMage::GeneratorBuilder.create
-  .with_phonemes(["p", "t", "k", "r"], ["a", "e", "i", "o"])
+  .with_phonemes(["p", "t", "k", "r"], ["a", "e", "i", "o"])  # IPA strings
   .with_syllable_patterns(["CV", "CVC"])
   .with_syllable_count(WordMage::SyllableCountSpec.range(2, 3))
   .starting_with(:vowel)
@@ -119,18 +134,42 @@ word = generator.generate  # "arek", "itopa", etc.
 ### Advanced Constraints & Phonological Features
 ```crystal
 # Generate words with complex constraints and phonological features
+# Consonant clusters configured using romanized forms (not IPA)
 generator = WordMage::GeneratorBuilder.create
   .with_phonemes(["t", "n", "k", "r", "l", "s"], ["a", "e", "i", "o"])
   .with_syllable_patterns(["CV", "CVC", "CCV"])
   .with_syllable_count(WordMage::SyllableCountSpec.range(2, 4))
   .with_thematic_vowel("a")              # Last vowel must be 'a'
-  .starting_with_sequence("thr")         # Words start with "thr"
-  .ending_with_sequence("ath")           # Words end with "ath"
+  .starting_with_sequence("thr")         # Words start with "thr" (romanized)
+  .ending_with_sequence("ath")           # Words end with "ath" (romanized)
   .with_gemination_probability(0.2)      # 20% consonant doubling
   .with_vowel_lengthening_probability(0.1) # 10% vowel lengthening
   .build
 
 word = generator.generate  # "thrennorath", "thrasillath", etc.
+```
+
+### IPA Phoneme System
+```crystal
+# Use actual IPA Phoneme instances for precise phonetic control
+require "wordmage/IPA"
+
+# Access built-in IPA phonemes
+front_vowels = WordMage::IPA::BasicPhonemes.select(&.as(WordMage::IPA::Vowel).front?)
+voiced_stops = WordMage::IPA::BasicPhonemes.select do |p| 
+  p.is_a?(WordMage::IPA::Consonant) && p.manner.plosive? && p.voiced
+end
+
+# Mix IPA strings and Phoneme instances
+generator = WordMage::GeneratorBuilder.create
+  .with_phonemes(voiced_stops, front_vowels)  # Phoneme instances
+  .with_syllable_patterns(["CV", "CVC"])
+  .starting_with_sequence("br")              # Romanized cluster
+  .build
+
+# Utility methods for phoneme resolution
+phoneme = WordMage::IPA::Utils.find_phoneme("t")  # Returns Consonant instance
+is_vowel = WordMage::IPA::Utils.is_vowel?("a")    # Returns true
 ```
 
 ### Word Analysis & Detection
@@ -150,8 +189,9 @@ puts analysis.recommended_budget       # 8
 ### Convenience Methods
 ```crystal
 # Enable/disable phonological features easily
+# Methods accept both IPA strings and Phoneme instances
 generator = WordMage::GeneratorBuilder.create
-  .with_phonemes(["t", "n", "k"], ["a", "e", "i"])
+  .with_phonemes(["t", "n", "k"], ["a", "e", "i"])  # IPA strings
   .with_syllable_patterns(["CV", "CVC"])
   .enable_gemination                    # 100% gemination
   .disable_vowel_lengthening           # 0% vowel lengthening
@@ -175,5 +215,7 @@ crystal run example.cr  # Run comprehensive examples
 - **Extensible**: Easy to add new patterns, constraints, and generation modes
 - **Analytical**: Built-in analysis and detection of phonological patterns
 - **Constraint-aware**: Multiple constraints work together harmoniously
+- **Input-flexible**: Methods accept both IPA strings and Phoneme instances for maximum convenience
+- **Romanization-aware**: Clusters and sequences use romanized forms, not IPA symbols
 
-The library is designed to be both powerful for complex conlang needs and simple for basic word generation tasks. With the new constraint and phonological systems, it can handle sophisticated linguistic requirements while maintaining ease of use.
+The library is designed to be both powerful for complex conlang needs and simple for basic word generation tasks. With the new IPA phoneme system, constraint framework, and phonological features, it can handle sophisticated linguistic requirements while maintaining ease of use. The dual input system (IPA strings or Phoneme instances) provides flexibility for different use cases.
