@@ -49,7 +49,7 @@ module WordMage
       # Check if pattern has multiple consonants that would be adjacent
       if has_adjacent_consonants?
         # Multiple consonants patterns require explicit cluster definitions
-        if (@allowed_clusters && @pattern.starts_with?("CC")) || (@allowed_coda_clusters && @pattern.ends_with?("CC"))
+        if @pattern.starts_with?("CC") || @pattern.ends_with?("CC")
           return generate_with_clusters(phonemes, position)
         else
           # Fallback to simpler pattern if no clusters defined
@@ -106,7 +106,18 @@ module WordMage
           chosen_cluster = valid_onset_clusters.sample
           syllable.concat(chosen_cluster.chars.map(&.to_s))
         else
-          return generate_fallback(phonemes, position)
+          # Generate automatic clusters from available consonants
+          consonants_array = available_consonants.to_a
+          if consonants_array.size >= 2
+            # Generate two different consonants
+            first_consonant = consonants_array.sample
+            remaining_consonants = consonants_array.reject { |c| c == first_consonant }
+            second_consonant = remaining_consonants.empty? ? consonants_array.sample : remaining_consonants.sample
+            syllable << first_consonant
+            syllable << second_consonant
+          else
+            return generate_fallback(phonemes, position)
+          end
         end
       elsif @pattern.starts_with?("C")
         # Single onset consonant
@@ -142,8 +153,18 @@ module WordMage
             return generate_fallback(phonemes, position)
           end
         else
-          # No coda clusters defined for CC pattern - fall back
-          return generate_fallback(phonemes, position)
+          # Generate automatic coda clusters from available consonants
+          consonants_array = available_consonants.to_a
+          if consonants_array.size >= 2
+            # Generate two different consonants
+            first_consonant = consonants_array.sample
+            remaining_consonants = consonants_array.reject { |c| c == first_consonant }
+            second_consonant = remaining_consonants.empty? ? consonants_array.sample : remaining_consonants.sample
+            syllable << first_consonant
+            syllable << second_consonant
+          else
+            return generate_fallback(phonemes, position)
+          end
         end
       elsif @pattern.ends_with?("C") && !@pattern.starts_with?("C")
         # Single coda consonant (for patterns like VC)
