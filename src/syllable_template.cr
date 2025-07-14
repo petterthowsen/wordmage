@@ -1,3 +1,5 @@
+require "./IPA/ipa"
+
 module WordMage
   # Defines syllable structure patterns with constraints and hiatus generation.
   #
@@ -65,7 +67,7 @@ module WordMage
         if @pattern.starts_with?("CC") || @pattern.ends_with?("CC")
           return generate_with_clusters(phonemes, position)
         else
-          # Fallback to simpler pattern if no clusters defined
+          # Fallback to basic vowel detection using the IPA module
           return generate_fallback(phonemes, position)
         end
       end
@@ -443,10 +445,9 @@ module WordMage
     # Delegates to PhonemeSet for accurate vowel detection including custom groups
     private def is_vowel?(phoneme : String, phoneme_set : PhonemeSet? = nil) : Bool
       # If phoneme_set is provided, use its knowledge of vowels
-      return phoneme_set.is_vowel?(phoneme) if phoneme_set
-      
-      # Fallback to basic vowel detection when no phoneme_set is available
-      %w[i u y ɑ ɔ ɛ a e o].includes?(phoneme)
+      phoneme_set.is_vowel? phoneme if phoneme_set
+
+      IPA::Utils.is_vowel? phoneme
     end
   end
 end

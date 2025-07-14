@@ -1,3 +1,5 @@
+require "./IPA/ipa"
+
 module WordMage
   # Manages consonants and vowels with positional constraints and weights for word generation.
   #
@@ -177,9 +179,12 @@ module WordMage
     # Checks if a phoneme is a vowel.
     #
     # ## Returns
-    # `true` if the phoneme is in the vowels set, `false` otherwise
+    # `true` if the phoneme is in the vowels set or recognized by IPA classification, `false` otherwise
+    #
+    # ## Note
+    # First checks the local vowels set, then falls back to IPA classification for broader coverage
     def is_vowel?(phoneme : String) : Bool
-      @vowels.includes?(phoneme)
+      @vowels.includes?(phoneme) || IPA::Utils.is_vowel?(phoneme)
     end
 
     # Checks if a custom group symbol should be treated as vowel-like for hiatus generation.
@@ -191,12 +196,16 @@ module WordMage
     # `true` if the custom group contains only vowels, `false` otherwise
     #
     # ## Note
-    # This is used to determine if hiatus (vowel sequences) should be applied to custom groups
+    # This is used to determine if hiatus (vowel sequences) should be applied to custom groups.
+    # Uses the IPA module for accurate vowel detection beyond just the local vowels set.
     def is_vowel_like_group?(symbol : Char) : Bool
       return false unless has_custom_group?(symbol)
       
       custom_phonemes = @custom_groups[symbol]
-      custom_phonemes.all? { |phoneme| @vowels.includes?(phoneme) }
+      custom_phonemes.all? { |phoneme| 
+        # Check both local vowels set and IPA classification
+        @vowels.includes?(phoneme) || IPA::Utils.is_vowel?(phoneme)
+      }
     end
 
     # Randomly selects a phoneme of the given type, respecting position and weights.

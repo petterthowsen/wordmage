@@ -4,6 +4,13 @@ require "./vowel"
 require "./consonant"
 
 module WordMage::IPA
+
+    class Utils
+        def self.is_vowel?(phoneme : String) : Bool
+            BasicPhonemes.any? { |p| p.symbol == phoneme && p.category == Category::VOWEL }
+        end
+    end
+
     ## The basic phonemes of the International Phonetic Alphabet (IPA)
     BasicPhonemes = [
         # -- Vowels -- #
