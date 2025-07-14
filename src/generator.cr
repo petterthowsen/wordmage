@@ -571,6 +571,35 @@ module WordMage
             vowel = select_vowel_with_harmony(vowel_sequence, position)
             syllable << vowel
           end
+        else
+          # Handle custom symbols
+          if @phoneme_set.has_custom_group?(symbol)
+            if template.allows_hiatus? && @phoneme_set.is_vowel_like_group?(symbol) && Random.rand < template.hiatus_probability
+              # Generate hiatus for vowel-like custom groups with harmony
+              first_phoneme = select_custom_phoneme_with_harmony(symbol, vowel_sequence, position)
+              syllable << first_phoneme
+              
+              # Second phoneme should be different
+              available_phonemes = @phoneme_set.get_custom_group(symbol, position).reject { |p| p == first_phoneme }
+              if available_phonemes.empty?
+                available_phonemes = @phoneme_set.get_custom_group(symbol, position)
+              end
+              
+              # Apply harmony if the custom group is vowel-like
+              second_phoneme = if @vowel_harmony && @vowel_harmony.not_nil!.active?
+                                 @vowel_harmony.not_nil!.select_vowel(first_phoneme, available_phonemes)
+                               else
+                                 available_phonemes.sample
+                               end
+              syllable << second_phoneme
+            else
+              # Single phoneme from custom group
+              phoneme = select_custom_phoneme_with_harmony(symbol, vowel_sequence, position)
+              syllable << phoneme
+            end
+          else
+            raise "Unknown pattern symbol '#{symbol}'"
+          end
         end
       end
       
@@ -655,6 +684,33 @@ module WordMage
                   end
           
           syllable << vowel
+        else
+          # Handle custom symbols
+          if @phoneme_set.has_custom_group?(symbol)
+            if @phoneme_set.is_vowel_like_group?(symbol)
+              # Use similar logic as vowels for vowel-like custom groups
+              phoneme = if @vowel_harmony && @vowel_harmony.not_nil!.active? && !vowel_sequence.empty?
+                          select_custom_phoneme_with_harmony(symbol, vowel_sequence, position)
+                        elsif !used_vowels.empty? && Random.rand < 0.6
+                          # Reuse from the custom group if vowel-like
+                          custom_phonemes = @phoneme_set.get_custom_group(symbol, position)
+                          available_custom = custom_phonemes.select { |p| used_vowels.includes?(p) }
+                          if available_custom.empty?
+                            custom_phonemes.sample
+                          else
+                            available_custom.sample
+                          end
+                        else
+                          @phoneme_set.sample_phoneme(symbol, position)
+                        end
+              syllable << phoneme
+            else
+              # Consonant-like custom groups
+              syllable << @phoneme_set.sample_phoneme(symbol, position)
+            end
+          else
+            raise "Unknown pattern symbol '#{symbol}'"
+          end
         end
       end
       
@@ -670,6 +726,18 @@ module WordMage
       # Use the last vowel in sequence to determine harmony
       last_vowel = vowel_sequence.last
       @vowel_harmony.not_nil!.select_vowel(last_vowel, available_vowels)
+    end
+
+    # Selects a phoneme from a custom group using vowel harmony rules (if vowel-like)
+    private def select_custom_phoneme_with_harmony(symbol : Char, vowel_sequence : Array(String), position : Symbol) : String
+      available_phonemes = @phoneme_set.get_custom_group(symbol, position)
+      
+      # If not vowel-like or no harmony active, just sample randomly
+      return available_phonemes.sample unless @phoneme_set.is_vowel_like_group?(symbol) && @vowel_harmony && @vowel_harmony.not_nil!.active? && !vowel_sequence.empty?
+      
+      # Use the last vowel in sequence to determine harmony for vowel-like custom groups
+      last_vowel = vowel_sequence.last
+      @vowel_harmony.not_nil!.select_vowel(last_vowel, available_phonemes)
     end
 
     # Generates simple, melodic syllables when budget is low
@@ -700,6 +768,29 @@ module WordMage
             syllable << available_vowels.sample
           else
             syllable << @phoneme_set.sample_phoneme(:vowel, position)
+          end
+        else
+          # Handle custom symbols
+          if @phoneme_set.has_custom_group?(symbol)
+            if @phoneme_set.is_vowel_like_group?(symbol) && !used_vowels.empty? && Random.rand < 0.6
+              # Reuse existing vowels for vowel-like custom groups
+              custom_phonemes = @phoneme_set.get_custom_group(symbol, position)
+              available_custom = custom_phonemes.select { |p| used_vowels.includes?(p) }
+              if available_custom.empty?
+                syllable << @phoneme_set.sample_phoneme(symbol, position)
+              else
+                # Avoid same phoneme as the last phoneme if possible
+                if !syllable.empty? && custom_phonemes.includes?(syllable.last)
+                  available_custom = available_custom.reject { |p| p == syllable.last }
+                  available_custom = custom_phonemes.select { |p| used_vowels.includes?(p) } if available_custom.empty?
+                end
+                syllable << available_custom.sample
+              end
+            else
+              syllable << @phoneme_set.sample_phoneme(symbol, position)
+            end
+          else
+            raise "Unknown pattern symbol '#{symbol}'"
           end
         end
       end

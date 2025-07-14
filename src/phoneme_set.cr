@@ -15,11 +15,13 @@ module WordMage
   class PhonemeSet
     property consonants : Set(String)
     property vowels : Set(String)
+    property custom_groups : Hash(Char, Set(String))
     property position_rules : Hash(Symbol, Set(String))
     property weights : Hash(String, Float32)
 
     # Creates a new PhonemeSet with the given consonants and vowels.
     def initialize(@consonants : Set(String), @vowels : Set(String))
+      @custom_groups = Hash(Char, Set(String)).new
       @position_rules = Hash(Symbol, Set(String)).new
       @weights = Hash(String, Float32).new
     end
@@ -47,6 +49,76 @@ module WordMage
         @position_rules[position] ||= Set(String).new
         @position_rules[position].add(phoneme)
       end
+    end
+
+    # Adds a custom phoneme group for pattern generation.
+    #
+    # ## Parameters
+    # - `symbol`: Single character symbol for the group (e.g., 'F' for fricatives)
+    # - `phonemes`: Array of phonemes belonging to this group
+    # - `positions`: Optional array of position symbols for positional constraints
+    #
+    # ## Example
+    # ```crystal
+    # phonemes.add_custom_group('F', ["f", "v", "s", "z"])  # Fricatives
+    # phonemes.add_custom_group('N', ["m", "n"], [:word_final])  # Nasals only at word end
+    # ```
+    #
+    # ## Raises
+    # Raises if symbol conflicts with reserved 'C' or 'V' symbols
+    def add_custom_group(symbol : Char, phonemes : Array(String), positions : Array(Symbol) = [] of Symbol)
+      if symbol == 'C' || symbol == 'V'
+        raise "Symbol '#{symbol}' is reserved for consonants and vowels"
+      end
+
+      @custom_groups[symbol] = phonemes.to_set
+
+      # Add positional constraints for each phoneme in the group
+      phonemes.each do |phoneme|
+        positions.each do |position|
+          @position_rules[position] ||= Set(String).new
+          @position_rules[position].add(phoneme)
+        end
+      end
+    end
+
+    # Returns phonemes from a custom group, optionally filtered by position.
+    #
+    # ## Parameters
+    # - `symbol`: Custom group symbol
+    # - `position`: Optional position to filter by
+    #
+    # ## Returns
+    # Array of phonemes from the custom group that can appear at the given position
+    #
+    # ## Raises
+    # Raises if the custom group symbol is not defined
+    def get_custom_group(symbol : Char, position : Symbol? = nil) : Array(String)
+      unless @custom_groups.has_key?(symbol)
+        raise "Custom group '#{symbol}' is not defined"
+      end
+
+      base = @custom_groups[symbol].to_a
+      if position
+        if rules = @position_rules[position]?
+          base.select { |p| rules.includes?(p) }
+        else
+          base
+        end
+      else
+        base
+      end
+    end
+
+    # Checks if a custom group symbol is defined.
+    #
+    # ## Parameters
+    # - `symbol`: Custom group symbol to check
+    #
+    # ## Returns
+    # `true` if the custom group is defined, `false` otherwise
+    def has_custom_group?(symbol : Char) : Bool
+      @custom_groups.has_key?(symbol)
     end
 
     # Assigns a weight to a phoneme for weighted sampling.
@@ -110,6 +182,23 @@ module WordMage
       @vowels.includes?(phoneme)
     end
 
+    # Checks if a custom group symbol should be treated as vowel-like for hiatus generation.
+    #
+    # ## Parameters
+    # - `symbol`: Custom group symbol to check
+    #
+    # ## Returns
+    # `true` if the custom group contains only vowels, `false` otherwise
+    #
+    # ## Note
+    # This is used to determine if hiatus (vowel sequences) should be applied to custom groups
+    def is_vowel_like_group?(symbol : Char) : Bool
+      return false unless has_custom_group?(symbol)
+      
+      custom_phonemes = @custom_groups[symbol]
+      custom_phonemes.all? { |phoneme| @vowels.includes?(phoneme) }
+    end
+
     # Randomly selects a phoneme of the given type, respecting position and weights.
     #
     # ## Parameters
@@ -129,6 +218,29 @@ module WordMage
                    end
 
       raise "No candidates available for type #{type} at position #{position}" if candidates.empty?
+
+      if @weights.empty?
+        candidates.sample
+      else
+        weighted_sample(candidates)
+      end
+    end
+
+    # Randomly selects a phoneme from a custom group, respecting position and weights.
+    #
+    # ## Parameters
+    # - `symbol`: Custom group symbol (e.g., 'F' for fricatives)
+    # - `position`: Optional position constraint
+    #
+    # ## Returns
+    # A randomly selected phoneme string from the custom group
+    #
+    # ## Raises
+    # Raises if the custom group is not defined or no candidates are available
+    def sample_phoneme(symbol : Char, position : Symbol? = nil) : String
+      candidates = get_custom_group(symbol, position)
+
+      raise "No candidates available for custom group '#{symbol}' at position #{position}" if candidates.empty?
 
       if @weights.empty?
         candidates.sample

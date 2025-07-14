@@ -76,6 +76,34 @@ module WordMage
       self
     end
 
+    # Adds a custom phoneme group for pattern generation.
+    #
+    # ## Parameters
+    # - `symbol`: Single character symbol for the group (e.g., 'F' for fricatives)
+    # - `phonemes`: Array of phonemes belonging to this group
+    # - `positions`: Optional array of position symbols for positional constraints
+    #
+    # ## Returns
+    # Self for method chaining
+    #
+    # ## Example
+    # ```crystal
+    # generator = GeneratorBuilder.create
+    #   .with_phonemes(["p", "t", "k", "f", "s"], ["a", "e", "i"])
+    #   .with_custom_group('F', ["f", "s"])  # Fricatives
+    #   .with_custom_group('P', ["p", "t", "k"])  # Plosives  
+    #   .with_syllable_patterns(["FVC", "PVF"])  # Use custom groups in patterns
+    #   .build
+    # ```
+    #
+    # ## Note
+    # Must be called after `with_phonemes`
+    def with_custom_group(symbol : Char, phonemes : Array(String), positions : Array(Symbol) = [] of Symbol)
+      phoneme_set = @phoneme_set.not_nil!
+      phoneme_set.add_custom_group(symbol, phonemes, positions)
+      self
+    end
+
     # Sets syllable patterns using pattern strings.
     #
     # ## Parameters
@@ -552,7 +580,11 @@ module WordMage
     #
     # ## Raises
     # Raises if required components (phonemes, syllable patterns, syllable count) are missing
+    # Raises if syllable patterns contain undefined custom symbols
     def build : Generator
+      # Validate that all custom symbols in patterns are defined
+      validate_pattern_symbols
+      
       word_spec = WordSpec.new(
         syllable_count: @syllable_count.not_nil!,
         starting_type: @starting_type,
@@ -575,6 +607,29 @@ module WordMage
         gemination_probability: @gemination_probability || 0.0_f32,
         vowel_lengthening_probability: @vowel_lengthening_probability || 0.0_f32
       )
+    end
+
+    # Validates that all symbols in syllable patterns have corresponding phoneme groups defined.
+    #
+    # ## Raises
+    # Raises if any pattern contains an undefined custom symbol
+    private def validate_pattern_symbols
+      return unless @syllable_templates && @phoneme_set
+      
+      phoneme_set = @phoneme_set.not_nil!
+      templates = @syllable_templates.not_nil!
+      
+      templates.each do |template|
+        template.pattern.each_char do |symbol|
+          # Skip standard symbols
+          next if symbol == 'C' || symbol == 'V'
+          
+          # Check if custom symbol is defined
+          unless phoneme_set.has_custom_group?(symbol)
+            raise "Pattern symbol '#{symbol}' is not defined. Use with_custom_group('#{symbol}', [...]) to define it."
+          end
+        end
+      end
     end
   end
 end

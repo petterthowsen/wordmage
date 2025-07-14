@@ -3,16 +3,22 @@ module WordMage
   #
   # SyllableTemplate specifies how syllables should be constructed using pattern
   # strings like "CV" (consonant-vowel), "CVC" (consonant-vowel-consonant), etc.
-  # Supports hiatus (vowel sequences) and validation constraints.
+  # Supports hiatus (vowel sequences), custom phoneme groups, and validation constraints.
   #
   # ## Pattern Symbols
   # - `C`: Consonant
   # - `V`: Vowel (may become VV with hiatus)
+  # - Custom symbols: Any character defined in PhonemeSet custom groups (e.g., 'F' for fricatives)
   #
   # ## Example
   # ```crystal
+  # # Basic patterns
   # template = SyllableTemplate.new("CCV", ["rr"], hiatus_probability: 0.3_f32)
   # syllable = template.generate(phoneme_set, :initial)  # ["p", "r", "a", "e"]
+  #
+  # # Custom patterns (after defining custom groups in PhonemeSet)
+  # template = SyllableTemplate.new("FVC")  # Fricative-Vowel-Consonant
+  # syllable = template.generate(phoneme_set, :initial)  # ["f", "a", "k"]
   # ```
   class SyllableTemplate
     property pattern : String
@@ -60,21 +66,45 @@ module WordMage
       # Regular generation for simple patterns (C and V are never adjacent)
       syllable = [] of String
 
-      @pattern.each_char do |symbol|
-        case symbol
-        when 'C'
-          syllable << phonemes.sample_phoneme(:consonant, position)
-        when 'V'
-          if allows_hiatus? && Random.rand < @hiatus_probability
-            first_vowel = phonemes.sample_phoneme(:vowel, position)
-            syllable << first_vowel
-            # Generate a different vowel for hiatus
-            second_vowel = generate_different_vowel(phonemes, first_vowel, position)
-            syllable << second_vowel
+      begin
+        @pattern.each_char do |symbol|
+          case symbol
+          when 'C'
+            syllable << phonemes.sample_phoneme(:consonant, position)
+          when 'V'
+            if allows_hiatus? && Random.rand < @hiatus_probability
+              first_vowel = phonemes.sample_phoneme(:vowel, position)
+              syllable << first_vowel
+              # Generate a different vowel for hiatus
+              second_vowel = generate_different_vowel(phonemes, first_vowel, position)
+              syllable << second_vowel
+            else
+              syllable << phonemes.sample_phoneme(:vowel, position)
+            end
           else
-            syllable << phonemes.sample_phoneme(:vowel, position)
+            # Handle custom symbols
+            if phonemes.has_custom_group?(symbol)
+              if allows_hiatus? && phonemes.is_vowel_like_group?(symbol) && Random.rand < @hiatus_probability
+                # Generate hiatus for vowel-like custom groups
+                first_phoneme = phonemes.sample_phoneme(symbol, position)
+                syllable << first_phoneme
+                # Generate a different phoneme for hiatus
+                second_phoneme = generate_different_custom_phoneme(phonemes, symbol, first_phoneme, position)
+                syllable << second_phoneme
+              else
+                syllable << phonemes.sample_phoneme(symbol, position)
+              end
+            else
+              raise "Unknown pattern symbol '#{symbol}'"
+            end
           end
         end
+      rescue ex : Exception
+        # If pattern symbol is unknown, re-raise immediately (don't retry)
+        if ex.message && ex.message.not_nil!.includes?("Unknown pattern symbol")
+          raise ex
+        end
+        # For other exceptions, fall through to retry logic
       end
 
       # Retry if constraints violated or has illegal sequences
@@ -184,8 +214,9 @@ module WordMage
 
     # Fallback to simpler pattern when clusters don't work
     private def generate_fallback(phonemes : PhonemeSet, position : Symbol) : Array(String)
-      # Convert CCV -> CV, CCCV -> CV, etc.
-      simplified_pattern = "C" + @pattern.gsub(/C+/, "C").gsub(/C/, "")
+      # Simplify pattern by removing consecutive identical symbols
+      # CCV -> CV, CCCV -> CV, FFF -> F, etc.
+      simplified_pattern = simplify_pattern(@pattern)
       
       syllable = [] of String
       simplified_pattern.each_char do |symbol|
@@ -194,10 +225,35 @@ module WordMage
           syllable << phonemes.sample_phoneme(:consonant, position)
         when 'V'
           syllable << phonemes.sample_phoneme(:vowel, position)
+        else
+          # Handle custom symbols
+          if phonemes.has_custom_group?(symbol)
+            syllable << phonemes.sample_phoneme(symbol, position)
+          else
+            raise "Unknown pattern symbol '#{symbol}'"
+          end
         end
       end
       
       syllable
+    end
+
+    # Simplifies a pattern by removing consecutive identical symbols
+    # Examples: "CCV" -> "CV", "FFVC" -> "FVC", "CCCVCC" -> "CVC"
+    private def simplify_pattern(pattern : String) : String
+      return pattern if pattern.empty?
+      
+      result = String.build do |str|
+        prev_char = nil
+        pattern.each_char do |char|
+          if char != prev_char
+            str << char
+            prev_char = char
+          end
+        end
+      end
+      
+      result
     end
 
     # Checks if this template can generate hiatus (vowel sequences).
@@ -245,8 +301,54 @@ module WordMage
       end
     end
 
+    # Generates a phoneme different from the given phoneme for hiatus in custom groups.
+    #
+    # ## Parameters
+    # - `phonemes`: PhonemeSet to sample from
+    # - `symbol`: Custom group symbol
+    # - `exclude_phoneme`: The phoneme to avoid (to prevent gemination)
+    # - `position`: Syllable position
+    #
+    # ## Returns
+    # A different phoneme from the custom group, or the same phoneme if no alternatives exist
+    private def generate_different_custom_phoneme(phonemes : PhonemeSet, symbol : Char, exclude_phoneme : String, position : Symbol) : String
+      available_phonemes = phonemes.get_custom_group(symbol, position).reject { |p| p == exclude_phoneme }
+      
+      if available_phonemes.empty?
+        # Fallback to any phoneme from the group if no alternatives (rare case)
+        phonemes.sample_phoneme(symbol, position)
+      else
+        # Use weighted sampling if weights exist
+        if phonemes.weights.empty?
+          available_phonemes.sample
+        else
+          weighted_sample_custom(available_phonemes, phonemes)
+        end
+      end
+    end
+
     # Weighted sampling for vowels excluding specific vowel
     private def weighted_sample_vowels(candidates : Array(String), phonemes : PhonemeSet) : String
+      weighted_candidates = candidates.select { |c| phonemes.weights.has_key?(c) }
+      
+      if weighted_candidates.empty?
+        return candidates.sample
+      end
+
+      total_weight = weighted_candidates.sum { |c| phonemes.weights[c] }
+      target = Random.rand * total_weight
+      current_weight = 0.0_f32
+
+      weighted_candidates.each do |candidate|
+        current_weight += phonemes.weights[candidate]
+        return candidate if current_weight >= target
+      end
+
+      weighted_candidates.first
+    end
+
+    # Weighted sampling for custom group phonemes excluding specific phoneme
+    private def weighted_sample_custom(candidates : Array(String), phonemes : PhonemeSet) : String
       weighted_candidates = candidates.select { |c| phonemes.weights.has_key?(c) }
       
       if weighted_candidates.empty?
