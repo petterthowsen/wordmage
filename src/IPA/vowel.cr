@@ -156,7 +156,9 @@ module WordMage::IPA
             
             rounding_str = rounded ? "rounded" : "unrounded"
             
-            "#{features.join(" ")} #{height_str} #{backness_str} #{rounding_str} vowel".strip
+            # Build the name components without commas, matching phonemes.txt format
+            components = [features.join(" "), height_str, backness_str, rounding_str].reject(&.empty?)
+            components.join(" ")
         end
     end
 end

@@ -87,13 +87,45 @@ module WordMage::IPA
             features << "lateral" if lateral && !manner.to_s.includes?("Lateral")
             
             voicing = voiced ? "voiced" : "voiceless"
-            manner_str = manner.to_s.gsub(/([A-Z])/, " \\1").strip.downcase
-            place_str = place.to_s.gsub(/([A-Z])/, " \\1").strip.downcase
+            
+            # Convert enum names to match phonemes.txt format
+            manner_str = case manner
+                        when .plosive? then "plosive"
+                        when .nasal? then "nasal"
+                        when .trill? then "trill"
+                        when .tap? then "tap"
+                        when .fricative? then "fricative"
+                        when .lateral_fricative? then "lateral fricative"
+                        when .approximant? then "approximant"
+                        when .lateral_approximant? then "lateral approximant"
+                        when .click? then "click"
+                        else manner.to_s.downcase
+                        end
+            
+            place_str = case place
+                       when .bilabial? then "bilabial"
+                       when .labiodental? then "labiodental"
+                       when .dental? then "dental"
+                       when .alveolar? then "alveolar"
+                       when .postalveolar? then "postalveolar"
+                       when .retroflex? then "retroflex"
+                       when .palatal? then "palatal"
+                       when .velar? then "velar"
+                       when .uvular? then "uvular"
+                       when .pharyngeal? then "pharyngeal"
+                       when .glottal? then "glottal"
+                       when .labial_velar? then "labial-velar"
+                       when .labial_palatal? then "labial-palatal"
+                       when .palatoalveolar? then "palato-alveolar"
+                       when .alveolo_palatal? then "alveolo-palatal"
+                       when .epiglottal? then "epiglottal"
+                       else place.to_s.downcase
+                       end
             
             if affricate
-                "#{features.join(" ")} #{voicing} #{place_str} affricate".strip
+                "#{voicing} #{place_str} affricate"
             else
-                "#{features.join(" ")} #{voicing} #{place_str} #{manner_str}".strip
+                "#{voicing} #{place_str} #{manner_str}"
             end
         end
     end
