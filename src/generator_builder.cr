@@ -695,7 +695,12 @@ module WordMage
       thematic_vowel = @thematic_vowel.not_nil!
       
       # Check if the thematic vowel matches any romanized vowel in the set
-      unless phoneme_set.vowels.any?(&.romanization.== thematic_vowel)
+      # Use the romanization map to convert phonemes to romanized form, just like during word generation
+      romanizer = @romanizer || RomanizationMap.new
+      
+      valid_romanized_vowels = phoneme_set.vowels.map { |vowel| romanizer.romanize([vowel.symbol]) }
+      
+      unless valid_romanized_vowels.includes?(thematic_vowel)
         raise ArgumentError.new("Thematic vowel '#{thematic_vowel}' is not in the vowel set")
       end
     end
