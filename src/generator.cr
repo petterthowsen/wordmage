@@ -45,6 +45,13 @@ module WordMage
     property positional_frequencies : Hash(String, Hash(String, Float32)) = Hash(String, Hash(String, Float32)).new
     property gemination_patterns : Hash(String, Float32) = Hash(String, Float32).new
     property vowel_lengthening_patterns : Hash(String, Float32) = Hash(String, Float32).new
+    
+    # Configurable complexity costs
+    property cluster_cost : Float32 = 3.0_f32
+    property hiatus_cost : Float32 = 2.0_f32
+    property complex_coda_cost : Float32 = 2.0_f32
+    property gemination_cost : Float32 = 3.0_f32
+    property vowel_lengthening_cost : Float32 = 1.0_f32
 
     @sequential_state : Hash(String, Int32)?
 
@@ -66,7 +73,12 @@ module WordMage
     # - `positional_frequencies`: Hash mapping phonemes to their positional frequency distributions
     # - `gemination_patterns`: Hash mapping gemination patterns to their frequencies
     # - `vowel_lengthening_patterns`: Hash mapping vowel lengthening patterns to their frequencies
-    def initialize(@phoneme_set : PhonemeSet, @word_spec : WordSpec, @romanizer : RomanizationMap, @mode : GenerationMode, @max_words : Int32 = 1000, @complexity_budget : Int32? = nil, @hiatus_escalation_factor : Float32 = 1.5_f32, @vowel_harmony : VowelHarmony? = nil, @gemination_probability : Float32 = 0.0_f32, @vowel_lengthening_probability : Float32 = 0.0_f32, @phoneme_transitions : Hash(String, Hash(String, Float32)) = Hash(String, Hash(String, Float32)).new, @transition_weight_factor : Float32 = 1.0_f32, @positional_frequencies : Hash(String, Hash(String, Float32)) = Hash(String, Hash(String, Float32)).new, @gemination_patterns : Hash(String, Float32) = Hash(String, Float32).new, @vowel_lengthening_patterns : Hash(String, Float32) = Hash(String, Float32).new)
+    # - `cluster_cost`: Cost per consonant cluster (default: 3.0)
+    # - `hiatus_cost`: Cost per hiatus sequence (default: 2.0)
+    # - `complex_coda_cost`: Cost per complex coda (default: 2.0)
+    # - `gemination_cost`: Cost per gemination (default: 3.0)
+    # - `vowel_lengthening_cost`: Cost per vowel lengthening (default: 1.0)
+    def initialize(@phoneme_set : PhonemeSet, @word_spec : WordSpec, @romanizer : RomanizationMap, @mode : GenerationMode, @max_words : Int32 = 1000, @complexity_budget : Int32? = nil, @hiatus_escalation_factor : Float32 = 1.5_f32, @vowel_harmony : VowelHarmony? = nil, @gemination_probability : Float32 = 0.0_f32, @vowel_lengthening_probability : Float32 = 0.0_f32, @phoneme_transitions : Hash(String, Hash(String, Float32)) = Hash(String, Hash(String, Float32)).new, @transition_weight_factor : Float32 = 1.0_f32, @positional_frequencies : Hash(String, Hash(String, Float32)) = Hash(String, Hash(String, Float32)).new, @gemination_patterns : Hash(String, Float32) = Hash(String, Float32).new, @vowel_lengthening_patterns : Hash(String, Float32) = Hash(String, Float32).new, @cluster_cost : Float32 = 3.0_f32, @hiatus_cost : Float32 = 2.0_f32, @complex_coda_cost : Float32 = 2.0_f32, @gemination_cost : Float32 = 3.0_f32, @vowel_lengthening_cost : Float32 = 1.0_f32)
       @sequential_state = nil
     end
 
@@ -706,12 +718,9 @@ module WordMage
         current_phoneme = phonemes[i]
         result << current_phoneme
         
-        # Only geminate consonants that aren't at the end, aren't word-initial, and aren't already doubled
+        # Only geminate consonants that are in valid positions for gemination
         if i < phonemes.size - 1 && 
-           i > 0 &&  # Not word-initial (prevent "ggrella")
-           !@phoneme_set.is_vowel?(current_phoneme) && 
-           phonemes[i-1] != current_phoneme &&  # Not already doubled
-           phonemes[i+1] != current_phoneme  # Next isn't same (avoid triple)
+           can_geminate_at_position?(phonemes, i)
           
           # Calculate gemination probability for this specific consonant
           gemination_prob = calculate_gemination_probability(current_phoneme)
@@ -726,6 +735,38 @@ module WordMage
       end
       
       result
+    end
+
+    # Checks if a consonant can be geminated at the given position.
+    # Gemination should only occur:
+    # - After a vowel (intervocalic position)
+    # - Not at word boundaries
+    # - Not when already doubled
+    private def can_geminate_at_position?(phonemes : Array(String), position : Int32) : Bool
+      current_phoneme = phonemes[position]
+      
+      # Must be a consonant
+      return false if @phoneme_set.is_vowel?(current_phoneme)
+      
+      # Must not be at the end of the word
+      return false if position >= phonemes.size - 1
+      
+      # Must not be at the beginning of the word
+      return false if position == 0
+      
+      # Previous phoneme must be a vowel (ensures we're not in an onset cluster)
+      previous_phoneme = phonemes[position - 1]
+      return false unless @phoneme_set.is_vowel?(previous_phoneme)
+      
+      # Must not already be doubled - check if next phoneme is the same
+      return false if phonemes[position + 1] == current_phoneme  # Next is same (avoid triple)
+      
+      # Check if we're already in a gemination sequence (look ahead for existing doubles)
+      if position + 2 < phonemes.size && phonemes[position + 1] == phonemes[position + 2]
+        return false  # Don't geminate if next consonant is already doubled
+      end
+      
+      true
     end
 
     # Calculates the gemination probability for a specific consonant
@@ -1133,29 +1174,29 @@ module WordMage
 
     # Calculates complexity cost of a syllable
     private def calculate_complexity_cost(syllable : Array(String), template : SyllableTemplate) : Int32
-      cost = 0
+      cost = 0.0_f32
       
       # Count clusters (adjacent consonants)
       consonant_clusters = count_consonant_clusters(syllable)
-      cost += consonant_clusters * 3  # 3 points per cluster
+      cost += consonant_clusters * @cluster_cost
       
       # Count hiatus (adjacent vowels)
       vowel_sequences = count_vowel_sequences(syllable)
-      cost += vowel_sequences * 2  # 2 points per hiatus
+      cost += vowel_sequences * @hiatus_cost
       
       # Complex codas (CC at end)
       if template.pattern.ends_with?("CC")
-        cost += 2
+        cost += @complex_coda_cost
       end
       
       # Gemination cost - estimate based on probability
       if @gemination_probability > 0.0
         consonant_count = syllable.count { |p| !@phoneme_set.is_vowel?(p) }
         expected_geminations = consonant_count * @gemination_probability
-        cost += (expected_geminations * 3).to_i  # 3 points per gemination
+        cost += expected_geminations * @gemination_cost
       end
       
-      cost
+      cost.to_i
     end
 
     # Calculates complexity cost with hiatus escalation factor
@@ -1164,27 +1205,27 @@ module WordMage
       
       # Count clusters (adjacent consonants) - normal cost
       consonant_clusters = count_consonant_clusters(syllable)
-      cost += consonant_clusters * 3.0_f32  # 3 points per cluster
+      cost += consonant_clusters * @cluster_cost
       
       # Gemination cost - estimate based on probability
       if @gemination_probability > 0.0
         consonant_count = syllable.count { |p| !@phoneme_set.is_vowel?(p) }
         expected_geminations = consonant_count * @gemination_probability
-        cost += expected_geminations * 3.0_f32  # 3 points per gemination
+        cost += expected_geminations * @gemination_cost
       end
       
       # Count hiatus (adjacent vowels) - escalating cost
       vowel_sequences = count_vowel_sequences(syllable)
       if vowel_sequences > 0
         # Each hiatus costs more based on how many we've already used
-        # 1st hiatus: 2 points, 2nd: 3 points, 3rd: 4.5 points, etc.
+        # 1st hiatus: base cost, 2nd: base * escalation, 3rd: base * escalation^2, etc.
         escalation_multiplier = @hiatus_escalation_factor ** previous_hiatus_count
-        cost += vowel_sequences * 2.0_f32 * escalation_multiplier
+        cost += vowel_sequences * @hiatus_cost * escalation_multiplier
       end
       
       # Complex codas (CC at end)
       if template.pattern.ends_with?("CC")
-        cost += 2.0_f32
+        cost += @complex_coda_cost
       end
       
       cost

@@ -1,5 +1,6 @@
 require "json"
 require "./vowel_harmony"
+require "./syllable_template"
 
 module WordMage
   # Represents aggregate analysis of multiple words.
@@ -86,6 +87,10 @@ module WordMage
     # Trigram frequencies: phoneme_triple -> frequency
     property trigram_frequencies : Hash(String, Float32)
 
+    # Provided SyllableTemplate objects (when analysis uses explicit templates)
+    @[JSON::Field(ignore: true)]
+    property provided_templates : Array(SyllableTemplate)?
+
     # Creates a new Analysis with specified parameters.
     def initialize(@phoneme_frequencies : Hash(String, Float32) = Hash(String, Float32).new,
                    @positional_frequencies : Hash(String, Hash(String, Float32)) = Hash(String, Hash(String, Float32)).new,
@@ -107,7 +112,8 @@ module WordMage
                    @vowel_lengthening_patterns : Hash(String, Float32) = Hash(String, Float32).new,
                    @phoneme_transitions : Hash(String, Hash(String, Float32)) = Hash(String, Hash(String, Float32)).new,
                    @bigram_frequencies : Hash(String, Float32) = Hash(String, Float32).new,
-                   @trigram_frequencies : Hash(String, Float32) = Hash(String, Float32).new)
+                   @trigram_frequencies : Hash(String, Float32) = Hash(String, Float32).new,
+                   @provided_templates : Array(SyllableTemplate)? = nil)
     end
 
     # Returns the most frequent phonemes in order.

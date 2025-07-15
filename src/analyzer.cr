@@ -1,5 +1,6 @@
 require "./word_analyzer"
 require "./analysis"
+require "./syllable_template"
 
 module WordMage
   # Analyzes sets of words to extract aggregate phonological patterns.
@@ -126,6 +127,118 @@ module WordMage
         phoneme_transitions: phoneme_transitions,
         bigram_frequencies: bigram_frequencies,
         trigram_frequencies: trigram_frequencies
+      )
+    end
+
+    # Analyzes a set of words using explicit SyllableTemplate objects.
+    #
+    # This method allows users to provide their own SyllableTemplate objects
+    # with defined onset and coda clusters. The analysis will respect these
+    # templates while still detecting all other phonological patterns.
+    #
+    # ## Parameters
+    # - `words`: Array of romanized words to analyze
+    # - `syllable_templates`: Array of user-defined SyllableTemplate objects
+    #
+    # ## Returns
+    # Analysis containing aggregate statistics with provided templates
+    #
+    # ## Example
+    # ```crystal
+    # templates = [
+    #   SyllableTemplate.new("CV", allowed_clusters: ["br", "tr"]),
+    #   SyllableTemplate.new("CVC", allowed_coda_clusters: ["st", "nt"])
+    # ]
+    # analysis = analyzer.analyze(["nazagon", "thadrae"], templates)
+    # puts analysis.provided_templates.size  # 2
+    # ```
+    def analyze(words : Array(String), syllable_templates : Array(SyllableTemplate)) : Analysis
+      return Analysis.new(provided_templates: syllable_templates) if words.empty?
+      
+      # Analyze each word individually using the provided templates
+      word_analyses = words.map { |word| @word_analyzer.analyze(word, syllable_templates) }
+      
+      # Aggregate phoneme frequencies
+      phoneme_frequencies = calculate_phoneme_frequencies(word_analyses)
+      
+      # Aggregate positional frequencies
+      positional_frequencies = calculate_positional_frequencies(word_analyses)
+      
+      # Aggregate syllable count distribution
+      syllable_count_distribution = calculate_syllable_count_distribution(word_analyses)
+      
+      # Aggregate syllable pattern distribution (still analyze detected patterns)
+      syllable_pattern_distribution = calculate_syllable_pattern_distribution(word_analyses)
+      
+      # Aggregate cluster patterns
+      cluster_patterns = calculate_cluster_patterns(word_analyses)
+      
+      # Aggregate hiatus patterns
+      hiatus_patterns = calculate_hiatus_patterns(word_analyses)
+      
+      # Aggregate vowel transitions
+      vowel_transitions = calculate_vowel_transitions(word_analyses)
+      
+      # Aggregate gemination patterns
+      gemination_patterns = calculate_gemination_patterns(word_analyses)
+      
+      # Aggregate vowel lengthening patterns
+      vowel_lengthening_patterns = calculate_vowel_lengthening_patterns(word_analyses)
+      
+      # Aggregate phoneme transitions
+      phoneme_transitions = calculate_phoneme_transitions(word_analyses)
+      
+      # Aggregate bigram and trigram frequencies
+      bigram_frequencies = calculate_bigram_frequencies(word_analyses)
+      trigram_frequencies = calculate_trigram_frequencies(word_analyses)
+      
+      # Aggregate complexity distribution
+      complexity_distribution = calculate_complexity_distribution(word_analyses)
+      
+      # Calculate averages
+      average_complexity = word_analyses.sum(&.complexity_score).to_f32 / word_analyses.size
+      average_syllable_count = word_analyses.sum(&.syllable_count).to_f32 / word_analyses.size
+      
+      # Calculate consonant/vowel ratio
+      total_consonants = word_analyses.sum(&.consonant_count)
+      total_vowels = word_analyses.sum(&.vowel_count)
+      consonant_vowel_ratio = total_vowels > 0 ? total_consonants.to_f32 / total_vowels.to_f32 : 0.0_f32
+      
+      # Generate recommendations
+      recommended_budget = calculate_recommended_budget(average_complexity)
+      
+      # Use provided templates instead of generating recommendations
+      provided_template_patterns = syllable_templates.map(&.pattern)
+      
+      # Calculate hiatus probability from provided templates
+      recommended_hiatus_probability = calculate_hiatus_probability_from_templates(syllable_templates)
+      
+      recommended_gemination_probability = calculate_recommended_gemination_probability(gemination_patterns, word_analyses)
+      dominant_patterns = calculate_dominant_patterns(syllable_pattern_distribution)
+      
+      Analysis.new(
+        phoneme_frequencies: phoneme_frequencies,
+        positional_frequencies: positional_frequencies,
+        syllable_count_distribution: syllable_count_distribution,
+        syllable_pattern_distribution: syllable_pattern_distribution,
+        cluster_patterns: cluster_patterns,
+        hiatus_patterns: hiatus_patterns,
+        complexity_distribution: complexity_distribution,
+        average_complexity: average_complexity,
+        average_syllable_count: average_syllable_count,
+        consonant_vowel_ratio: consonant_vowel_ratio,
+        recommended_budget: recommended_budget,
+        recommended_templates: provided_template_patterns,
+        recommended_hiatus_probability: recommended_hiatus_probability,
+        recommended_gemination_probability: recommended_gemination_probability,
+        dominant_patterns: dominant_patterns,
+        vowel_transitions: vowel_transitions,
+        gemination_patterns: gemination_patterns,
+        vowel_lengthening_patterns: vowel_lengthening_patterns,
+        phoneme_transitions: phoneme_transitions,
+        bigram_frequencies: bigram_frequencies,
+        trigram_frequencies: trigram_frequencies,
+        provided_templates: syllable_templates
       )
     end
 
@@ -617,6 +730,29 @@ module WordMage
       
       # Clamp to reasonable bounds
       [0.0_f32, [base_probability, 0.8_f32].min].max
+    end
+
+    # Calculates hiatus probability from provided SyllableTemplate objects.
+    #
+    # ## Parameters
+    # - `syllable_templates`: Array of SyllableTemplate objects
+    #
+    # ## Returns
+    # Float32 representing the average hiatus probability across templates
+    private def calculate_hiatus_probability_from_templates(syllable_templates : Array(SyllableTemplate)) : Float32
+      return 0.0_f32 if syllable_templates.empty?
+      
+      # Calculate weighted average of hiatus probabilities
+      total_probability = 0.0_f32
+      total_weight = 0.0_f32
+      
+      syllable_templates.each do |template|
+        weight = template.probability
+        total_probability += template.hiatus_probability * weight
+        total_weight += weight
+      end
+      
+      total_weight > 0 ? total_probability / total_weight : 0.0_f32
     end
   end
 end

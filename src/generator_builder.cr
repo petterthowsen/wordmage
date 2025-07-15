@@ -42,6 +42,13 @@ module WordMage
     @positional_frequencies : Hash(String, Hash(String, Float32))?
     @gemination_patterns : Hash(String, Float32)?
     @vowel_lengthening_patterns : Hash(String, Float32)?
+    
+    # Configurable complexity costs
+    @cluster_cost : Float32?
+    @hiatus_cost : Float32?
+    @complex_coda_cost : Float32?
+    @gemination_cost : Float32?
+    @vowel_lengthening_cost : Float32?
 
     # Creates a new GeneratorBuilder instance.
     #
@@ -653,6 +660,120 @@ module WordMage
       self
     end
 
+    # Sets the complexity cost for consonant clusters.
+    #
+    # ## Parameters
+    # - `cost`: Cost per consonant cluster (default: 3.0)
+    #
+    # ## Returns
+    # Self for method chaining
+    #
+    # ## Example
+    # ```crystal
+    # .with_cluster_cost(5.0_f32)  # Make clusters more expensive
+    # ```
+    def with_cluster_cost(cost : Float32)
+      @cluster_cost = cost
+      self
+    end
+
+    # Sets the complexity cost for hiatus sequences.
+    #
+    # ## Parameters
+    # - `cost`: Cost per hiatus sequence (default: 2.0)
+    #
+    # ## Returns
+    # Self for method chaining
+    #
+    # ## Example
+    # ```crystal
+    # .with_hiatus_cost(1.0_f32)  # Make hiatus cheaper
+    # ```
+    def with_hiatus_cost(cost : Float32)
+      @hiatus_cost = cost
+      self
+    end
+
+    # Sets the complexity cost for complex codas.
+    #
+    # ## Parameters
+    # - `cost`: Cost per complex coda (default: 2.0)
+    #
+    # ## Returns
+    # Self for method chaining
+    #
+    # ## Example
+    # ```crystal
+    # .with_complex_coda_cost(4.0_f32)  # Make complex codas more expensive
+    # ```
+    def with_complex_coda_cost(cost : Float32)
+      @complex_coda_cost = cost
+      self
+    end
+
+    # Sets the complexity cost for gemination.
+    #
+    # ## Parameters
+    # - `cost`: Cost per gemination (default: 3.0)
+    #
+    # ## Returns
+    # Self for method chaining
+    #
+    # ## Example
+    # ```crystal
+    # .with_gemination_cost(2.0_f32)  # Make gemination cheaper
+    # ```
+    def with_gemination_cost(cost : Float32)
+      @gemination_cost = cost
+      self
+    end
+
+    # Sets the complexity cost for vowel lengthening.
+    #
+    # ## Parameters
+    # - `cost`: Cost per vowel lengthening (default: 1.0)
+    #
+    # ## Returns
+    # Self for method chaining
+    #
+    # ## Example
+    # ```crystal
+    # .with_vowel_lengthening_cost(0.5_f32)  # Make vowel lengthening very cheap
+    # ```
+    def with_vowel_lengthening_cost(cost : Float32)
+      @vowel_lengthening_cost = cost
+      self
+    end
+
+    # Sets all complexity costs at once.
+    #
+    # ## Parameters
+    # - `cluster`: Cost per consonant cluster (default: 3.0)
+    # - `hiatus`: Cost per hiatus sequence (default: 2.0)
+    # - `coda`: Cost per complex coda (default: 2.0)
+    # - `gemination`: Cost per gemination (default: 3.0)
+    # - `vowel_lengthening`: Cost per vowel lengthening (default: 1.0)
+    #
+    # ## Returns
+    # Self for method chaining
+    #
+    # ## Example
+    # ```crystal
+    # .with_complexity_costs(
+    #   cluster: 4.0_f32,
+    #   hiatus: 1.5_f32,
+    #   gemination: 2.0_f32
+    # )
+    # ```
+    def with_complexity_costs(cluster : Float32 = 3.0_f32, hiatus : Float32 = 2.0_f32, coda : Float32 = 2.0_f32, gemination : Float32 = 3.0_f32, vowel_lengthening : Float32 = 1.0_f32)
+      @cluster_cost = cluster
+      @hiatus_cost = hiatus
+      @complex_coda_cost = coda
+      @gemination_cost = gemination
+      @vowel_lengthening_cost = vowel_lengthening
+      self
+    end
+
     # Builds the final Generator instance.
     #
     # ## Returns
@@ -693,7 +814,12 @@ module WordMage
         transition_weight_factor: @transition_weight_factor || 1.0_f32,
         positional_frequencies: @positional_frequencies || Hash(String, Hash(String, Float32)).new,
         gemination_patterns: @gemination_patterns || Hash(String, Float32).new,
-        vowel_lengthening_patterns: @vowel_lengthening_patterns || Hash(String, Float32).new
+        vowel_lengthening_patterns: @vowel_lengthening_patterns || Hash(String, Float32).new,
+        cluster_cost: @cluster_cost || 3.0_f32,
+        hiatus_cost: @hiatus_cost || 2.0_f32,
+        complex_coda_cost: @complex_coda_cost || 2.0_f32,
+        gemination_cost: @gemination_cost || 3.0_f32,
+        vowel_lengthening_cost: @vowel_lengthening_cost || 1.0_f32
       )
     end
 

@@ -201,6 +201,51 @@ describe WordMage::WordAnalyzer do
       analysis.vowel_count.should eq(0)
     end
   end
+
+  describe "#analyze with SyllableTemplate" do
+    it "analyzes word with provided templates" do
+      romanization = WordMage::RomanizationMap.new({
+        "t" => "t", "n" => "n", "k" => "k", "r" => "r",
+        "a" => "a", "e" => "e", "o" => "o"
+      })
+      analyzer = WordMage::WordAnalyzer.new(romanization)
+      
+      templates = [
+        WordMage::SyllableTemplate.new("CV", allowed_clusters: ["tr"]),
+        WordMage::SyllableTemplate.new("CVC", allowed_coda_clusters: ["nt"])
+      ]
+      
+      analysis = analyzer.analyze("tanoke", templates)
+      
+      analysis.syllable_count.should eq(3)
+      analysis.consonant_count.should eq(3)
+      analysis.vowel_count.should eq(3)
+      analysis.should be_a(WordMage::WordAnalysis)
+    end
+
+    it "produces same results as standard analyze method" do
+      romanization = WordMage::RomanizationMap.new({
+        "t" => "t", "n" => "n", "k" => "k", "r" => "r",
+        "a" => "a", "e" => "e", "o" => "o"
+      })
+      analyzer = WordMage::WordAnalyzer.new(romanization)
+      
+      templates = [
+        WordMage::SyllableTemplate.new("CV"),
+        WordMage::SyllableTemplate.new("CVC")
+      ]
+      
+      word = "tanoke"
+      standard_analysis = analyzer.analyze(word)
+      template_analysis = analyzer.analyze(word, templates)
+      
+      template_analysis.syllable_count.should eq(standard_analysis.syllable_count)
+      template_analysis.consonant_count.should eq(standard_analysis.consonant_count)
+      template_analysis.vowel_count.should eq(standard_analysis.vowel_count)
+      template_analysis.phonemes.should eq(standard_analysis.phonemes)
+      template_analysis.syllable_patterns.should eq(standard_analysis.syllable_patterns)
+    end
+  end
 end
 
 describe WordMage::Analyzer do
@@ -315,6 +360,112 @@ describe WordMage::Analyzer do
       analysis.syllable_count_distribution.should_not be_empty
       analysis.positional_frequencies.has_key?("t").should be_true
       analysis.vowel_transitions.should_not be_empty
+    end
+  end
+
+  describe "#analyze with SyllableTemplate" do
+    it "analyzes words with provided templates" do
+      romanization = WordMage::RomanizationMap.new({
+        "t" => "t", "n" => "n", "k" => "k", "r" => "r", "s" => "s",
+        "a" => "a", "e" => "e", "o" => "o"
+      })
+      analyzer = WordMage::Analyzer.new(romanization)
+      
+      templates = [
+        WordMage::SyllableTemplate.new("CV", allowed_clusters: ["tr"]),
+        WordMage::SyllableTemplate.new("CVC", allowed_coda_clusters: ["nt", "st"])
+      ]
+      
+      words = ["tanoke", "srekon", "tarase"]
+      analysis = analyzer.analyze(words, templates)
+      
+      analysis.average_syllable_count.should be > 0
+      analysis.average_complexity.should be > 0
+      analysis.phoneme_frequencies.has_key?("t").should be_true
+      analysis.syllable_pattern_distribution.has_key?("CV").should be_true
+      analysis.provided_templates.should_not be_nil
+      analysis.provided_templates.not_nil!.size.should eq(2)
+    end
+
+    it "uses provided templates for recommendations" do
+      romanization = WordMage::RomanizationMap.new({
+        "t" => "t", "n" => "n", "k" => "k", "r" => "r",
+        "a" => "a", "e" => "e", "o" => "o"
+      })
+      analyzer = WordMage::Analyzer.new(romanization)
+      
+      templates = [
+        WordMage::SyllableTemplate.new("CV", hiatus_probability: 0.3_f32),
+        WordMage::SyllableTemplate.new("CVC", hiatus_probability: 0.1_f32)
+      ]
+      
+      words = ["tanoke", "kon", "tara"]
+      analysis = analyzer.analyze(words, templates)
+      
+      # Should use provided template patterns instead of generating new ones
+      analysis.recommended_templates.should eq(["CV", "CVC"])
+      analysis.provided_templates.should_not be_nil
+      analysis.provided_templates.not_nil!.map(&.pattern).should eq(["CV", "CVC"])
+    end
+
+    it "calculates hiatus probability from provided templates" do
+      romanization = WordMage::RomanizationMap.new({
+        "t" => "t", "n" => "n", "k" => "k",
+        "a" => "a", "e" => "e", "o" => "o"
+      })
+      analyzer = WordMage::Analyzer.new(romanization)
+      
+      templates = [
+        WordMage::SyllableTemplate.new("CV", hiatus_probability: 0.4_f32, probability: 1.0_f32),
+        WordMage::SyllableTemplate.new("CVC", hiatus_probability: 0.2_f32, probability: 1.0_f32)
+      ]
+      
+      words = ["tanoke", "kon", "tara"]
+      analysis = analyzer.analyze(words, templates)
+      
+      # Should calculate weighted average: (0.4 * 1.0 + 0.2 * 1.0) / (1.0 + 1.0) = 0.3
+      analysis.recommended_hiatus_probability.should be_close(0.3_f32, 0.01_f32)
+    end
+
+    it "preserves all other analysis features with templates" do
+      romanization = WordMage::RomanizationMap.new({
+        "t" => "t", "n" => "n", "k" => "k", "r" => "r", "s" => "s",
+        "a" => "a", "e" => "e", "o" => "o"
+      })
+      analyzer = WordMage::Analyzer.new(romanization)
+      
+      templates = [
+        WordMage::SyllableTemplate.new("CV"),
+        WordMage::SyllableTemplate.new("CVC")
+      ]
+      
+      words = ["tannok", "keeto", "spraeto"]
+      analysis = analyzer.analyze(words, templates)
+      
+      # Should still detect gemination and other patterns
+      analysis.gemination_patterns.should_not be_empty
+      analysis.vowel_lengthening_patterns.should_not be_empty
+      analysis.cluster_patterns.should_not be_empty
+      analysis.phoneme_transitions.should_not be_empty
+      analysis.bigram_frequencies.should_not be_empty
+      analysis.dominant_patterns.should_not be_empty
+    end
+
+    it "handles empty word collections with templates" do
+      romanization = WordMage::RomanizationMap.new({"a" => "a"})
+      analyzer = WordMage::Analyzer.new(romanization)
+      
+      templates = [
+        WordMage::SyllableTemplate.new("CV"),
+        WordMage::SyllableTemplate.new("CVC")
+      ]
+      
+      analysis = analyzer.analyze([] of String, templates)
+      
+      analysis.average_syllable_count.should eq(0.0)
+      analysis.phoneme_frequencies.should be_empty
+      analysis.provided_templates.should_not be_nil
+      analysis.provided_templates.not_nil!.size.should eq(2)
     end
   end
 end

@@ -38,13 +38,13 @@ phoneme_weights = {
 }
 
 # Simplified clusters for more elegant words (using romanized forms)
-onset_clusters = ["tr", "gr", "thr", "dr"]  # Keep only the most flowing clusters
-coda_clusters = ["n", "s", "r"]  # Simple codas instead of complex clusters
+onset_clusters = ["tr", "gr", "thr", "dr", "pr", "br", "skr", "kr"]  # Keep only the most flowing clusters
+coda_clusters = ["n", "s", "r", "ml", "rv", "vl", "lv", "rs", "rz", "sl", "fl", "fr", "sk", "zk", "rn", "nt"]  # Simple codas instead of complex clusters
 
 # Simplified syllable templates for more elegant words
 cluster_template = WordMage::SyllableTemplate.new("CCV", 
   allowed_clusters: onset_clusters,
-  hiatus_probability: 0.15_f32  # Reduced hiatus
+  hiatus_probability: 0.1_f32  # Reduced hiatus
 )
 
 # Simple coda template - single consonant endings
@@ -55,11 +55,13 @@ coda_template = WordMage::SyllableTemplate.new("CVC",
 
 # Main CV template - most common pattern
 regular_template = WordMage::SyllableTemplate.new("CV", 
-  hiatus_probability: 0.2_f32  # Moderate hiatus for flow
+  hiatus_probability: 0.1_f32  # Moderate hiatus for flow
 )
 
 # Vowel template for elegant transitions
-vowel_template = WordMage::SyllableTemplate.new("V", hiatus_probability: 0.4_f32)
+vowel_template = WordMage::SyllableTemplate.new("V",
+  hiatus_probability: 0.1_f32
+)
 
 # Create generators with different complexity budgets
 simple_generator = WordMage::GeneratorBuilder.create
@@ -252,20 +254,41 @@ puts "Transition diversity: #{analysis.vowel_transition_diversity.round(2)}"
 puts "Gemination patterns: #{analysis.gemination_patterns.to_pretty_json}"
 puts "Vowel lengthening patterns: #{analysis.vowel_lengthening_patterns.to_pretty_json}"
 
-puts "\n### Creating Generator from Analysis (with automatic vowel harmony)"
+puts "\n### Creating Generator from Analysis (with explicit templates)"
+# Define explicit templates with user-defined clusters
+explicit_templates = [
+  regular_template,   # CV patterns - most common
+  vowel_template,     # V patterns for flow
+  cluster_template,   # CCV with flowing onset clusters: ["tr", "gr", "thr", "dr"]
+  coda_template       # CVC with simple codas: ["n", "s", "r"]
+]
+
+# Analyze using explicit templates instead of auto-generated ones
+romanization_map = WordMage::RomanizationMap.new(romanization)
+explicit_analyzer = WordMage::Analyzer.new(romanization_map)
+explicit_analysis = explicit_analyzer.analyze(target_words, explicit_templates)
+
+puts "\n### Explicit Template Analysis Results"
+puts "Provided templates: #{explicit_analysis.provided_templates.not_nil!.map(&.pattern).join(", ")}"
+puts "Recommended hiatus probability: #{explicit_analysis.recommended_hiatus_probability.round(3)}"
+puts "Template-based analysis preserves user-defined clusters while detecting patterns"
+
 analyzed_generator = WordMage::GeneratorBuilder.create
   .with_phonemes(["b", "d", "f", "g", "k", "l", "m", "n", "p", "r", "s", "t", "v", "z", "ɲ", "ʒ", "θ"], 
                  ["i", "u", "y", "ɑ", "ɔ", "ɛ"])
-  .with_syllable_templates([
-    regular_template, vowel_template, cluster_template, coda_template
-  ])  # Define cluster-constrained templates BEFORE analysis
   .with_romanization(romanization)
-  .with_analysis_of_words(target_words, analysis_weight_factor: 100.0_f32)
+  .with_syllable_templates(explicit_templates)  # Use the explicit templates with cluster constraints
+  .with_analysis(explicit_analysis, analysis_weight_factor: 100.0_f32)
   .with_hiatus_escalation(10.0_f32)
   .with_vowel_harmony_strength(1.0_f32)
   .with_complexity_budget(6)
   .with_gemination_probability(0.1_f32)
-  #.with_vowel_lengthening_probability(1_f32)
+  .with_vowel_lengthening_probability(0.1_f32)
+  .with_cluster_cost(5.0)           # Make clusters more expensive
+  .with_hiatus_cost(2.0)            # Make hiatus cheaper
+  .with_gemination_cost(2.0)        # Make gemination cheaper
+  .with_complex_coda_cost(4.0)      # Make complex codas more expensive
+  .with_vowel_lengthening_cost(3.0) # Make vowel lengthening very cheap
   .random_mode
   .build
 
@@ -278,22 +301,26 @@ end
 puts "\n### Vowel Harmony API Flexibility"
 
 puts "\n## 1. Without vowel harmony:"
+# Use explicit template analysis without vowel harmony
+no_harmony_analysis = explicit_analyzer.analyze(target_words, explicit_templates)
 no_harmony_gen = WordMage::GeneratorBuilder.create
   .with_phonemes(["b", "d", "g", "k", "l", "m", "n", "r", "s", "t", "θ"], ["ɑ", "ɛ", "ɔ", "i", "u", "y"])
-  .with_syllable_templates([regular_template, vowel_template, cluster_template, coda_template])
   .with_romanization(romanization)
-  .with_analysis_of_words(target_words, vowel_harmony: false)  # Disable harmony
+  .with_syllable_templates(explicit_templates)  # Use explicit templates with cluster constraints
+  .with_analysis(no_harmony_analysis, vowel_harmony: false)  # Disable harmony
   .random_mode
   .build
 
 5.times { |i| puts "#{i + 1}. #{no_harmony_gen.generate}" }
 
 puts "\n## 2. With weak vowel harmony:"
+# Use explicit template analysis with weak vowel harmony
+weak_harmony_analysis = explicit_analyzer.analyze(target_words, explicit_templates)
 weak_harmony_gen = WordMage::GeneratorBuilder.create
   .with_phonemes(["b", "d", "g", "k", "l", "m", "n", "r", "s", "t", "θ"], ["ɑ", "ɛ", "ɔ", "i", "u", "y"])
-  .with_syllable_templates([regular_template, vowel_template, cluster_template, coda_template])
   .with_romanization(romanization)
-  .with_analysis_of_words(target_words)  # Auto harmony
+  .with_syllable_templates(explicit_templates)  # Use explicit templates with cluster constraints
+  .with_analysis(weak_harmony_analysis)  # Auto harmony
   .with_vowel_harmony_strength(0.3_f32)  # Make it weak
   .random_mode
   .build
@@ -301,25 +328,112 @@ weak_harmony_gen = WordMage::GeneratorBuilder.create
 5.times { |i| puts "#{i + 1}. #{weak_harmony_gen.generate}" }
 
 puts "\n## 3. With strong vowel harmony:"
+# Use explicit template analysis with strong vowel harmony
+strong_harmony_analysis = explicit_analyzer.analyze(target_words, explicit_templates)
 strong_harmony_gen = WordMage::GeneratorBuilder.create
   .with_phonemes(["b", "d", "g", "k", "l", "m", "n", "r", "s", "t", "θ"], ["ɑ", "ɛ", "ɔ", "i", "u", "y"])
-  .with_syllable_templates([regular_template, vowel_template, cluster_template, coda_template])
   .with_romanization(romanization)
-  .with_analysis_of_words(target_words)  # Auto harmony  
+  .with_syllable_templates(explicit_templates)  # Use explicit templates with cluster constraints
+  .with_analysis(strong_harmony_analysis)  # Auto harmony  
   .with_vowel_harmony_strength(0.9_f32)  # Make it strong
   .random_mode
   .build
 
 5.times { |i| puts "#{i + 1}. #{strong_harmony_gen.generate}" }
 
+puts "\n### Comparison: Auto vs Explicit Templates"
+puts "## Auto-generated templates (old approach):"
+puts "Recommended templates: #{analysis.recommended_templates.join(", ")}"
+puts "Hiatus probability: #{analysis.recommended_hiatus_probability.round(3)}"
+puts "Templates are detected from word patterns"
+
+puts "\n## Explicit templates (new approach):"
+puts "Provided templates: #{explicit_analysis.provided_templates.not_nil!.map(&.pattern).join(", ")}"
+puts "Hiatus probability: #{explicit_analysis.recommended_hiatus_probability.round(3)}"
+puts "Templates are user-defined with specific cluster constraints"
+
+puts "\n### Key Differences:"
+puts "• Auto approach: Generates templates based on detected patterns"
+puts "• Explicit approach: Uses user-defined templates with specific onset/coda clusters"
+puts "• Auto templates: #{analysis.recommended_templates.join(", ")}"
+puts "• Explicit templates: #{explicit_analysis.provided_templates.not_nil!.map(&.pattern).join(", ")}"
+
+puts "\n### Cluster Analysis:"
+puts "Auto-detected clusters: #{analysis.cluster_patterns.keys.first(10).join(", ")}"
+puts "Explicit template clusters:"
+explicit_analysis.provided_templates.not_nil!.each do |template|
+  if template.allowed_clusters
+    puts "  #{template.pattern} onset clusters: #{template.allowed_clusters.not_nil!.join(", ")}"
+  end
+  if template.allowed_coda_clusters
+    puts "  #{template.pattern} coda clusters: #{template.allowed_coda_clusters.not_nil!.join(", ")}"
+  end
+end
+
 puts "\n### Saving Analysis to JSON"
-json_data = analysis.to_json
+json_data = explicit_analysis.to_json
 puts "Analysis saved (#{json_data.size} characters)"
-puts "Phoneme diversity: #{analysis.phoneme_diversity.round(2)}"
-puts "Structural complexity: #{analysis.structural_complexity.round(2)}"
-puts "Complexity preference: #{analysis.complexity_preference}"
+puts "Phoneme diversity: #{explicit_analysis.phoneme_diversity.round(2)}"
+puts "Structural complexity: #{explicit_analysis.structural_complexity.round(2)}"
+puts "Complexity preference: #{explicit_analysis.complexity_preference}"
 puts "\nVowel Harmony Features:"
-puts "• Automatic detection from with_analysis_of_words()"
+puts "• Automatic detection from explicit template analysis"
 puts "• Toggle: .with_vowel_harmony(false) or .with_vowel_harmony(true)"
 puts "• Adjust strength: .with_vowel_harmony_strength(0.0-1.0)"
 puts "• Manual rules: .with_vowel_harmony(custom_harmony_object)"
+puts "• Explicit templates: User-defined syllable structures with cluster constraints"
+
+puts "\n### Configurable Complexity Costs"
+puts "WordMage now supports configurable complexity costs for fine-tuning generation:"
+
+# Create a generator with custom complexity costs
+custom_cost_generator = WordMage::GeneratorBuilder.create
+  .with_phonemes(["b", "d", "g", "k", "l", "m", "n", "r", "s", "t", "θ"], ["ɑ", "ɛ", "ɔ", "i", "u", "y"])
+  .with_romanization(romanization)
+  .with_syllable_templates(explicit_templates)
+  .with_syllable_count(WordMage::SyllableCountSpec.range(2, 4))  # Add syllable count specification
+  .with_complexity_budget(10)  # Higher budget to show cost effects
+  .with_complexity_costs(
+    cluster: 5.0_f32,      # Make clusters more expensive (default: 3.0)
+    hiatus: 1.0_f32,       # Make hiatus cheaper (default: 2.0)
+    gemination: 2.0_f32,   # Make gemination cheaper (default: 3.0)
+    coda: 3.0_f32,         # Make complex codas more expensive (default: 2.0)
+    vowel_lengthening: 0.5_f32  # Make vowel lengthening very cheap (default: 1.0)
+  )
+  .with_gemination_probability(0.3_f32)
+  .with_vowel_lengthening_probability(0.2_f32)
+  .random_mode
+  .build
+
+puts "\n## Words with Custom Complexity Costs:"
+puts "Budget: 10, Cluster: 5.0, Hiatus: 1.0, Gemination: 2.0, Coda: 3.0, Vowel Lengthening: 0.5"
+10.times do |i|
+  word = custom_cost_generator.generate
+  puts "#{i + 1}. #{word}"
+end
+
+puts "\n## Comparison with Default Costs:"
+default_cost_generator = WordMage::GeneratorBuilder.create
+  .with_phonemes(["b", "d", "g", "k", "l", "m", "n", "r", "s", "t", "θ"], ["ɑ", "ɛ", "ɔ", "i", "u", "y"])
+  .with_romanization(romanization)
+  .with_syllable_templates(explicit_templates)
+  .with_syllable_count(WordMage::SyllableCountSpec.range(2, 4))  # Add syllable count specification
+  .with_complexity_budget(10)  # Same budget for comparison
+  .with_gemination_probability(0.3_f32)
+  .with_vowel_lengthening_probability(0.2_f32)
+  .random_mode
+  .build
+
+puts "Budget: 10, Default costs (Cluster: 3.0, Hiatus: 2.0, Gemination: 3.0, Coda: 2.0, Vowel Lengthening: 1.0)"
+10.times do |i|
+  word = default_cost_generator.generate
+  puts "#{i + 1}. #{word}"
+end
+
+puts "\n### Complexity Cost Configuration Methods:"
+puts "• .with_cluster_cost(cost) - Set cost per consonant cluster"
+puts "• .with_hiatus_cost(cost) - Set cost per hiatus sequence"
+puts "• .with_complex_coda_cost(cost) - Set cost per complex coda"
+puts "• .with_gemination_cost(cost) - Set cost per gemination"
+puts "• .with_vowel_lengthening_cost(cost) - Set cost per vowel lengthening"
+puts "• .with_complexity_costs(cluster:, hiatus:, coda:, gemination:, vowel_lengthening:) - Set all costs at once"

@@ -1,5 +1,6 @@
 require "./word_analysis"
 require "./romanization_map"
+require "./syllable_template"
 
 module WordMage
   # Analyzes individual words to extract phonological patterns and structure.
@@ -98,6 +99,36 @@ module WordMage
         bigrams: bigrams,
         trigrams: trigrams
       )
+    end
+
+    # Analyzes a romanized word using provided SyllableTemplate objects.
+    #
+    # This method allows analysis to work with user-defined templates while
+    # still detecting all phonological patterns. The templates are used for
+    # context but don't modify the core analysis.
+    #
+    # ## Parameters
+    # - `word`: The romanized word to analyze
+    # - `syllable_templates`: Array of SyllableTemplate objects (used for context)
+    #
+    # ## Returns
+    # WordAnalysis containing detailed structural information
+    #
+    # ## Example
+    # ```crystal
+    # templates = [SyllableTemplate.new("CV"), SyllableTemplate.new("CVC")]
+    # analysis = analyzer.analyze("nazagon", templates)
+    # puts analysis.syllable_count     # 3
+    # puts analysis.consonant_count    # 4
+    # ```
+    def analyze(word : String, syllable_templates : Array(SyllableTemplate)) : WordAnalysis
+      # For now, we delegate to the standard analyze method since the core
+      # analysis logic remains the same. The syllable_templates parameter
+      # provides context for the caller but doesn't change the analysis.
+      # 
+      # In the future, this could be enhanced to use template information
+      # to guide syllable boundary detection or cluster recognition.
+      analyze(word)
     end
 
     # Converts romanized text to phonemes using the reverse romanization map.
