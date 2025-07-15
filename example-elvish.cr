@@ -254,8 +254,9 @@ analyzed_generator = WordMage::GeneratorBuilder.create
   ])  # Define cluster-constrained templates BEFORE analysis
   .with_romanization(romanization)
   .with_analysis_of_words(target_words)  # Automatically includes vowel harmony!
-  .with_hiatus_escalation(2.0_f32)
-  .with_vowel_harmony_strength(0.7_f32)  # Adjust harmony strength
+  .with_hiatus_escalation(10.0_f32)
+  .with_vowel_harmony_strength(0.8_f32)  # Adjust harmony strength
+  .with_complexity_budget(5)
   .random_mode
   .build
 

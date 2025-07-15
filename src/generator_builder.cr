@@ -36,6 +36,7 @@ module WordMage
     @ends_with : String?
     @gemination_probability : Float32?
     @vowel_lengthening_probability : Float32?
+    @analysis_weight_factor : Float32?
 
     # Creates a new GeneratorBuilder instance.
     #
@@ -324,11 +325,11 @@ module WordMage
     # ## Note
     # This method applies phoneme weights, syllable patterns, complexity budget,
     # vowel harmony, and other settings derived from the analysis.
-    def with_analysis(analysis : Analysis, vowel_harmony : Bool = true)
+    def with_analysis(analysis : Analysis, vowel_harmony : Bool = true, analysis_weight_factor : Float32 = 20.0_f32)
       # Apply phoneme weights from frequency analysis
       analysis.phoneme_frequencies.each do |phoneme, frequency|
         # Convert frequency to weight (scale up for more impact)
-        weight = frequency * 10.0_f32
+        weight = frequency * analysis_weight_factor
         if @phoneme_set
           @phoneme_set.not_nil!.add_weight(phoneme, weight)
         end
@@ -375,13 +376,13 @@ module WordMage
     #
     # ## Raises
     # Raises if no romanization map has been set
-    def with_analysis_of_words(words : Array(String), vowel_harmony : Bool = true)
+    def with_analysis_of_words(words : Array(String), vowel_harmony : Bool = true, analysis_weight_factor : Float32 = 20.0_f32)
       romanizer = @romanizer || raise "No romanization map set. Use with_romanization() first."
       
       analyzer = Analyzer.new(romanizer)
       analysis = analyzer.analyze(words)
       
-      with_analysis(analysis, vowel_harmony)
+      with_analysis(analysis, vowel_harmony, analysis_weight_factor)
     end
 
     # Sets vowel harmony rules for the generator.
