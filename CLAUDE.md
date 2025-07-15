@@ -24,10 +24,15 @@ WordMage is a Crystal library for generating words for constructed languages (co
 - **Constraint composition** - Multiple constraints work together seamlessly
 
 ### Phonological Features
-- **Gemination** - Configurable consonant doubling with probability control
+- **Gemination** - Configurable consonant doubling with probability control and complexity costs
 - **Vowel lengthening** - Configurable vowel doubling for emphasis
-- **Automatic detection** - Analyzer detects gemination and lengthening patterns in existing words
-- **Statistical analysis** - Frequency analysis of phonological features
+- **N-gram analysis** - Comprehensive phoneme transition, bigram, and trigram frequency analysis
+- **Contextual generation** - Phoneme selection based on neighboring phoneme frequencies
+- **Word-initial patterns** - Special handling for word-initial phoneme selection using positional frequencies
+- **Pattern-based probabilities** - Analysis-driven gemination and vowel lengthening probabilities
+- **Complexity budgeting** - Gemination adds 3 complexity points to prevent overuse
+- **Automatic detection** - Analyzer detects all phonological patterns in existing words
+- **Statistical analysis** - Comprehensive frequency analysis of phonological features
 
 ## Project Structure
 
@@ -103,8 +108,12 @@ The test suite has **96 tests** covering all functionality:
   - Sequential vs random generation
   - **Thematic vowel constraints** ("thranas", "kona", "tenask")
   - **Sequence constraints** (starts with "thra", ends with "ath")
-  - **Gemination generation** (consonant doubling)
+  - **Gemination generation** (consonant doubling with complexity costs)
   - **Vowel lengthening** (vowel doubling)
+  - **N-gram analysis** (phoneme transitions, bigrams, trigrams)
+  - **Contextual phoneme selection** based on neighboring frequencies
+  - **Word-initial pattern handling** for realistic word beginnings
+  - **Pattern-based gemination probabilities** from analysis
   - **Phonological feature detection** in analysis
   - **Complex constraint combinations**
 
@@ -183,7 +192,25 @@ analysis = analyzer.analyze(words)
 
 puts analysis.gemination_patterns      # {"nn" => 0.33, "ll" => 0.33}
 puts analysis.vowel_lengthening_patterns # {"ɑɑ" => 0.67, "ɔɔ" => 0.33}
+puts analysis.phoneme_transitions     # {"t" => {"ɛ" => 0.5, "n" => 0.5}}
+puts analysis.most_frequent_bigrams(5) # ["tn", "nn", "ɑɑ", "ll", "ɔɔ"]
 puts analysis.recommended_budget       # 8
+puts analysis.recommended_gemination_probability # 0.25
+```
+
+### Analysis-Driven Generation
+```crystal
+# Generate words based on analysis of existing words
+# Automatically detects patterns and applies them with configurable weight
+target_words = ["aggon", "thaggor", "naggar", "delara"]
+generator = WordMage::GeneratorBuilder.create
+  .with_phonemes(["t", "n", "k", "g", "r", "l"], ["a", "e", "i", "o"])
+  .with_syllable_patterns(["CV", "CVC", "CCV"])
+  .with_analysis_of_words(target_words, analysis_weight_factor: 50.0_f32)
+  .with_gemination_probability(0.2_f32)  # Global multiplier for analysis patterns
+  .build
+
+word = generator.generate  # Uses detected patterns: "nagga", "thaggor", "delara"
 ```
 
 ### Convenience Methods
@@ -213,9 +240,11 @@ crystal run example.cr  # Run comprehensive examples
 - **Testable**: Comprehensive test coverage with clear boundaries
 - **Ergonomic**: Fluent API makes common tasks simple, complex tasks possible
 - **Extensible**: Easy to add new patterns, constraints, and generation modes
-- **Analytical**: Built-in analysis and detection of phonological patterns
+- **Analytical**: Built-in analysis and detection of phonological patterns with n-gram support
+- **Context-aware**: Phoneme selection considers neighboring phonemes and positional frequencies
+- **Pattern-driven**: Analysis automatically informs generation probabilities and complexity costs
 - **Constraint-aware**: Multiple constraints work together harmoniously
 - **Input-flexible**: Methods accept both IPA strings and Phoneme instances for maximum convenience
 - **Romanization-aware**: Clusters and sequences use romanized forms, not IPA symbols
 
-The library is designed to be both powerful for complex conlang needs and simple for basic word generation tasks. With the new IPA phoneme system, constraint framework, and phonological features, it can handle sophisticated linguistic requirements while maintaining ease of use. The dual input system (IPA strings or Phoneme instances) provides flexibility for different use cases.
+The library is designed to be both powerful for complex conlang needs and simple for basic word generation tasks. With the enhanced IPA phoneme system, comprehensive n-gram analysis, contextual generation, and pattern-based probabilities, it can handle sophisticated linguistic requirements while maintaining ease of use. The analysis-driven approach allows generating words that match the phonological patterns of existing languages or word sets.

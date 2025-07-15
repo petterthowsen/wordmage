@@ -40,6 +40,11 @@ module WordMage
     property vowel_harmony : VowelHarmony?
     property gemination_probability : Float32 = 0.0
     property vowel_lengthening_probability : Float32 = 0.0
+    property phoneme_transitions : Hash(String, Hash(String, Float32)) = Hash(String, Hash(String, Float32)).new
+    property transition_weight_factor : Float32 = 1.0
+    property positional_frequencies : Hash(String, Hash(String, Float32)) = Hash(String, Hash(String, Float32)).new
+    property gemination_patterns : Hash(String, Float32) = Hash(String, Float32).new
+    property vowel_lengthening_patterns : Hash(String, Float32) = Hash(String, Float32).new
 
     @sequential_state : Hash(String, Int32)?
 
@@ -56,7 +61,12 @@ module WordMage
     # - `vowel_harmony`: Optional vowel harmony rules
     # - `gemination_probability`: Probability (0.0-1.0) of consonant gemination (default: 0.0)
     # - `vowel_lengthening_probability`: Probability (0.0-1.0) of vowel lengthening (default: 0.0)
-    def initialize(@phoneme_set : PhonemeSet, @word_spec : WordSpec, @romanizer : RomanizationMap, @mode : GenerationMode, @max_words : Int32 = 1000, @complexity_budget : Int32? = nil, @hiatus_escalation_factor : Float32 = 1.5_f32, @vowel_harmony : VowelHarmony? = nil, @gemination_probability : Float32 = 0.0_f32, @vowel_lengthening_probability : Float32 = 0.0_f32)
+    # - `phoneme_transitions`: Hash mapping phoneme transitions to their frequencies
+    # - `transition_weight_factor`: Weight factor for transition probabilities (default: 1.0)
+    # - `positional_frequencies`: Hash mapping phonemes to their positional frequency distributions
+    # - `gemination_patterns`: Hash mapping gemination patterns to their frequencies
+    # - `vowel_lengthening_patterns`: Hash mapping vowel lengthening patterns to their frequencies
+    def initialize(@phoneme_set : PhonemeSet, @word_spec : WordSpec, @romanizer : RomanizationMap, @mode : GenerationMode, @max_words : Int32 = 1000, @complexity_budget : Int32? = nil, @hiatus_escalation_factor : Float32 = 1.5_f32, @vowel_harmony : VowelHarmony? = nil, @gemination_probability : Float32 = 0.0_f32, @vowel_lengthening_probability : Float32 = 0.0_f32, @phoneme_transitions : Hash(String, Hash(String, Float32)) = Hash(String, Hash(String, Float32)).new, @transition_weight_factor : Float32 = 1.0_f32, @positional_frequencies : Hash(String, Hash(String, Float32)) = Hash(String, Hash(String, Float32)).new, @gemination_patterns : Hash(String, Float32) = Hash(String, Float32).new, @vowel_lengthening_patterns : Hash(String, Float32) = Hash(String, Float32).new)
       @sequential_state = nil
     end
 
@@ -171,6 +181,77 @@ module WordMage
       generate_with_syllable_count_and_starting_type(syllable_count, @word_spec.starting_type)
     end
 
+    # Sample a phoneme with contextual transition weights if available.
+    #
+    # ## Parameters
+    # - `type`: Phoneme type (:consonant, :vowel)
+    # - `position`: Position constraint
+    # - `context`: Previous phoneme in the current word for transition weighting
+    #
+    # ## Returns
+    # A phoneme symbol selected with transition-aware weighting
+    private def sample_contextual_phoneme(type : Symbol, position : Symbol?, context : String?) : String
+      if context && !@phoneme_transitions.empty? && @transition_weight_factor > 0.0
+        @phoneme_set.sample_phoneme(type, position, context, @phoneme_transitions, @transition_weight_factor)
+      else
+        # For word-initial phonemes, use positional frequencies if available
+        if position == :initial && !@positional_frequencies.empty?
+          @phoneme_set.sample_phoneme(type, position, nil, @phoneme_transitions, @transition_weight_factor, @positional_frequencies)
+        else
+          @phoneme_set.sample_phoneme(type, position)
+        end
+      end
+    end
+
+    # Overload for custom groups (single character symbols)
+    private def sample_contextual_phoneme(symbol : Char, position : Symbol?, context : String?) : String
+      # For custom groups, fall back to regular sampling since we don't have transition data for custom symbols yet
+      @phoneme_set.sample_phoneme(symbol, position)
+    end
+
+    # Generates a syllable with enhanced context while respecting template constraints
+    private def generate_syllable_with_enhanced_context(template : SyllableTemplate, position : Symbol, context_phoneme : String?) : Array(String)
+      # Create a context-aware PhonemeSet temporarily
+      enhanced_phoneme_set = create_context_aware_phoneme_set(context_phoneme)
+      
+      # Use the original template generation with the enhanced PhonemeSet
+      # This preserves cluster validation and all other template constraints
+      template.generate(enhanced_phoneme_set, position, @romanizer)
+    end
+
+    # Creates a temporary PhonemeSet with context-aware weights for the first phoneme
+    private def create_context_aware_phoneme_set(context_phoneme : String?) : PhonemeSet
+      # Create a copy of the original PhonemeSet
+      enhanced_set = PhonemeSet.new(@phoneme_set.consonants.to_a, @phoneme_set.vowels.to_a)
+      
+      # Copy original weights
+      @phoneme_set.weights.each do |phoneme, weight|
+        enhanced_set.add_weight(phoneme, weight)
+      end
+      
+      # Copy custom groups
+      @phoneme_set.custom_groups.each do |symbol, phonemes|
+        enhanced_set.add_custom_group(symbol, phonemes.to_a)
+      end
+      
+      # If we have context and transitions, boost weights for likely followers
+      if context_phoneme && !@phoneme_transitions.empty?
+        if context_transitions = @phoneme_transitions[context_phoneme]?
+          context_transitions.each do |next_phoneme, frequency|
+            # Find the IPA phoneme instance for the next_phoneme
+            if phoneme_instance = enhanced_set.get_phoneme_by_symbol(next_phoneme)
+              # Boost weight based on transition frequency
+              current_weight = enhanced_set.weights[phoneme_instance]? || 1.0_f32
+              boost = frequency * @transition_weight_factor
+              enhanced_set.add_weight(phoneme_instance, current_weight + boost)
+            end
+          end
+        end
+      end
+      
+      enhanced_set
+    end
+
     private def generate_with_starting_type(starting_type : Symbol) : String
       syllable_count = @word_spec.generate_syllable_count
       generate_with_syllable_count_and_starting_type(syllable_count, starting_type)
@@ -244,7 +325,15 @@ module WordMage
                      select_simple_template(position)
                    end
 
-        syllable = generate_syllable_with_budget_and_harmony(template, position, used_vowels, vowel_sequence, remaining_budget.to_i)
+        # Use original template generation with context-aware PhonemeSet
+        syllable = if !syllables.empty? && !@phoneme_transitions.empty?
+          # Set context in PhonemeSet for transition-aware sampling
+          context_phoneme = syllables.flatten.last?
+          generate_syllable_with_enhanced_context(template, position, context_phoneme)
+        else
+          # Use original template generation
+          template.generate(@phoneme_set, position, @romanizer)
+        end
         
         # Attach prefix to first syllable, but ensure phonological validity
         if i == 0 && !prefix_phonemes.empty?
@@ -371,7 +460,15 @@ module WordMage
                      select_simple_template(position)
                    end
 
-        syllable = generate_syllable_with_budget_and_harmony(template, position, used_vowels, vowel_sequence, remaining_budget.to_i)
+        # Use original template generation with context-aware PhonemeSet
+        syllable = if !syllables.empty? && !@phoneme_transitions.empty?
+          # Set context in PhonemeSet for transition-aware sampling
+          context_phoneme = syllables.flatten.last?
+          generate_syllable_with_enhanced_context(template, position, context_phoneme)
+        else
+          # Use original template generation
+          template.generate(@phoneme_set, position, @romanizer)
+        end
         
         # For the first syllable, prepend the prefix if it exists
         if i == 0 && !prefix_phonemes.empty?
@@ -609,21 +706,48 @@ module WordMage
         current_phoneme = phonemes[i]
         result << current_phoneme
         
-        # Only geminate consonants that aren't at the end and aren't already doubled
+        # Only geminate consonants that aren't at the end, aren't word-initial, and aren't already doubled
         if i < phonemes.size - 1 && 
+           i > 0 &&  # Not word-initial (prevent "ggrella")
            !@phoneme_set.is_vowel?(current_phoneme) && 
-           Random.rand < @gemination_probability &&
-           (i == 0 || phonemes[i-1] != current_phoneme) &&  # Not already doubled
+           phonemes[i-1] != current_phoneme &&  # Not already doubled
            phonemes[i+1] != current_phoneme  # Next isn't same (avoid triple)
           
-          # Add the geminated consonant
-          result << current_phoneme
+          # Calculate gemination probability for this specific consonant
+          gemination_prob = calculate_gemination_probability(current_phoneme)
+          
+          if Random.rand < gemination_prob
+            # Add the geminated consonant
+            result << current_phoneme
+          end
         end
         
         i += 1
       end
       
       result
+    end
+
+    # Calculates the gemination probability for a specific consonant
+    private def calculate_gemination_probability(consonant : String) : Float32
+      # Base probability from global setting
+      base_prob = @gemination_probability
+      
+      # If we have analysis patterns, use them to boost specific consonants
+      if !@gemination_patterns.empty?
+        # Look for patterns like "gg", "ll", "nn", etc.
+        gemination_pattern = consonant + consonant
+        pattern_frequency = @gemination_patterns[gemination_pattern]? || 0.0_f32
+        
+        # Combine base probability with pattern frequency
+        # If pattern frequency is high, boost the probability
+        enhanced_prob = base_prob + (pattern_frequency * 2.0_f32)  # Scale up pattern influence
+        
+        # Clamp to valid probability range
+        [enhanced_prob, 1.0_f32].min
+      else
+        base_prob
+      end
     end
 
     # Counts the number of syllables in a phoneme sequence using the same logic as WordAnalyzer
@@ -639,22 +763,23 @@ module WordMage
     # Generates a vowel-initial syllable to avoid consonant cluster problems
     private def generate_vowel_initial_syllable(template : SyllableTemplate, position : Symbol) : Array(String)
       # Force the syllable to start with a vowel
-      vowel = @phoneme_set.sample_phoneme(:vowel, position)
+      vowel = sample_contextual_phoneme(:vowel, position, nil)
       
       # Generate the rest of the syllable pattern after the vowel
       remaining_pattern = template.pattern.sub(/^C*/, "")  # Remove leading consonants
       syllable = [vowel]
       
       remaining_pattern.each_char do |symbol|
+        context = syllable.last? # Get the last phoneme as context
         case symbol
         when 'C'
-          syllable << @phoneme_set.sample_phoneme(:consonant, position)
+          syllable << sample_contextual_phoneme(:consonant, position, context)
         when 'V'
-          syllable << @phoneme_set.sample_phoneme(:vowel, position)
+          syllable << sample_contextual_phoneme(:vowel, position, context)
         else
           # Handle custom symbols
           if @phoneme_set.has_custom_group?(symbol)
-            syllable << @phoneme_set.sample_phoneme(symbol, position)
+            syllable << sample_contextual_phoneme(symbol, position, context)
           end
         end
       end
@@ -682,12 +807,16 @@ module WordMage
         # Only lengthen vowels that aren't at the end and aren't already doubled
         if i < phonemes.size - 1 && 
            @phoneme_set.is_vowel?(current_phoneme) && 
-           Random.rand < @vowel_lengthening_probability &&
            (i == 0 || phonemes[i-1] != current_phoneme) &&  # Not already doubled
            phonemes[i+1] != current_phoneme  # Next isn't same (avoid triple)
           
-          # Add the lengthened vowel
-          result << current_phoneme
+          # Calculate vowel lengthening probability for this specific vowel
+          lengthening_prob = calculate_vowel_lengthening_probability(current_phoneme)
+          
+          if Random.rand < lengthening_prob
+            # Add the lengthened vowel
+            result << current_phoneme
+          end
         end
         
         i += 1
@@ -696,14 +825,36 @@ module WordMage
       result
     end
 
+    # Calculates the vowel lengthening probability for a specific vowel
+    private def calculate_vowel_lengthening_probability(vowel : String) : Float32
+      # Base probability from global setting
+      base_prob = @vowel_lengthening_probability
+      
+      # If we have analysis patterns, use them to boost specific vowels
+      if !@vowel_lengthening_patterns.empty?
+        # Look for patterns like "aa", "ee", "oo", etc.
+        lengthening_pattern = vowel + vowel
+        pattern_frequency = @vowel_lengthening_patterns[lengthening_pattern]? || 0.0_f32
+        
+        # Combine base probability with pattern frequency
+        # If pattern frequency is high, boost the probability
+        enhanced_prob = base_prob + (pattern_frequency * 2.0_f32)  # Scale up pattern influence
+        
+        # Clamp to valid probability range
+        [enhanced_prob, 1.0_f32].min
+      else
+        base_prob
+      end
+    end
+
     # Generates syllable respecting budget constraints
     private def generate_syllable_with_budget(template : SyllableTemplate, position : Symbol, used_vowels : Set(String), remaining_budget : Int32) : Array(String)
       if remaining_budget <= 2
         # Low budget - use vowel harmony and simple patterns
         generate_melodic_syllable(template, position, used_vowels)
       else
-        # Normal generation with budget
-        template.generate(@phoneme_set, position, @romanizer)
+        # Normal generation with budget and context
+        generate_syllable_with_context(template, position, [] of String)
       end
     end
 
@@ -997,6 +1148,13 @@ module WordMage
         cost += 2
       end
       
+      # Gemination cost - estimate based on probability
+      if @gemination_probability > 0.0
+        consonant_count = syllable.count { |p| !@phoneme_set.is_vowel?(p) }
+        expected_geminations = consonant_count * @gemination_probability
+        cost += (expected_geminations * 3).to_i  # 3 points per gemination
+      end
+      
       cost
     end
 
@@ -1007,6 +1165,13 @@ module WordMage
       # Count clusters (adjacent consonants) - normal cost
       consonant_clusters = count_consonant_clusters(syllable)
       cost += consonant_clusters * 3.0_f32  # 3 points per cluster
+      
+      # Gemination cost - estimate based on probability
+      if @gemination_probability > 0.0
+        consonant_count = syllable.count { |p| !@phoneme_set.is_vowel?(p) }
+        expected_geminations = consonant_count * @gemination_probability
+        cost += expected_geminations * 3.0_f32  # 3 points per gemination
+      end
       
       # Count hiatus (adjacent vowels) - escalating cost
       vowel_sequences = count_vowel_sequences(syllable)

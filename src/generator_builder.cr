@@ -37,6 +37,11 @@ module WordMage
     @gemination_probability : Float32?
     @vowel_lengthening_probability : Float32?
     @analysis_weight_factor : Float32?
+    @phoneme_transitions : Hash(String, Hash(String, Float32))?
+    @transition_weight_factor : Float32?
+    @positional_frequencies : Hash(String, Hash(String, Float32))?
+    @gemination_patterns : Hash(String, Float32)?
+    @vowel_lengthening_patterns : Hash(String, Float32)?
 
     # Creates a new GeneratorBuilder instance.
     #
@@ -357,6 +362,27 @@ module WordMage
         @vowel_harmony = analysis.generate_vowel_harmony(strength: 0.6_f32, threshold: 0.15_f32)
       end
       
+      # Apply phoneme transitions for contextual generation
+      if !analysis.phoneme_transitions.empty?
+        @phoneme_transitions = analysis.phoneme_transitions
+        @transition_weight_factor = analysis_weight_factor * 0.1_f32  # Scale down for transitions
+      end
+      
+      # Apply positional frequencies for word-initial selection
+      if !analysis.positional_frequencies.empty?
+        @positional_frequencies = analysis.positional_frequencies
+      end
+      
+      # Apply gemination patterns
+      if !analysis.gemination_patterns.empty?
+        @gemination_patterns = analysis.gemination_patterns
+      end
+      
+      # Apply vowel lengthening patterns
+      if !analysis.vowel_lengthening_patterns.empty?
+        @vowel_lengthening_patterns = analysis.vowel_lengthening_patterns
+      end
+      
       self
     end
 
@@ -662,7 +688,12 @@ module WordMage
         hiatus_escalation_factor: @hiatus_escalation_factor || 1.5_f32,
         vowel_harmony: @vowel_harmony,
         gemination_probability: @gemination_probability || 0.0_f32,
-        vowel_lengthening_probability: @vowel_lengthening_probability || 0.0_f32
+        vowel_lengthening_probability: @vowel_lengthening_probability || 0.0_f32,
+        phoneme_transitions: @phoneme_transitions || Hash(String, Hash(String, Float32)).new,
+        transition_weight_factor: @transition_weight_factor || 1.0_f32,
+        positional_frequencies: @positional_frequencies || Hash(String, Hash(String, Float32)).new,
+        gemination_patterns: @gemination_patterns || Hash(String, Float32).new,
+        vowel_lengthening_patterns: @vowel_lengthening_patterns || Hash(String, Float32).new
       )
     end
 

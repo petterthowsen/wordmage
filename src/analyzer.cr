@@ -78,6 +78,13 @@ module WordMage
       # Aggregate vowel lengthening patterns
       vowel_lengthening_patterns = calculate_vowel_lengthening_patterns(word_analyses)
       
+      # Aggregate phoneme transitions
+      phoneme_transitions = calculate_phoneme_transitions(word_analyses)
+      
+      # Aggregate bigram and trigram frequencies
+      bigram_frequencies = calculate_bigram_frequencies(word_analyses)
+      trigram_frequencies = calculate_trigram_frequencies(word_analyses)
+      
       # Aggregate complexity distribution
       complexity_distribution = calculate_complexity_distribution(word_analyses)
       
@@ -94,6 +101,7 @@ module WordMage
       recommended_budget = calculate_recommended_budget(average_complexity)
       recommended_templates = calculate_recommended_templates(syllable_pattern_distribution)
       recommended_hiatus_probability = calculate_recommended_hiatus_probability(hiatus_patterns, word_analyses)
+      recommended_gemination_probability = calculate_recommended_gemination_probability(gemination_patterns, word_analyses)
       dominant_patterns = calculate_dominant_patterns(syllable_pattern_distribution)
       
       Analysis.new(
@@ -110,10 +118,14 @@ module WordMage
         recommended_budget: recommended_budget,
         recommended_templates: recommended_templates,
         recommended_hiatus_probability: recommended_hiatus_probability,
+        recommended_gemination_probability: recommended_gemination_probability,
         dominant_patterns: dominant_patterns,
         vowel_transitions: vowel_transitions,
         gemination_patterns: gemination_patterns,
-        vowel_lengthening_patterns: vowel_lengthening_patterns
+        vowel_lengthening_patterns: vowel_lengthening_patterns,
+        phoneme_transitions: phoneme_transitions,
+        bigram_frequencies: bigram_frequencies,
+        trigram_frequencies: trigram_frequencies
       )
     end
 
@@ -490,6 +502,121 @@ module WordMage
       end
       
       patterns
+    end
+
+    # Calculates phoneme transition frequencies.
+    #
+    # ## Parameters
+    # - `word_analyses`: Array of WordAnalysis instances
+    #
+    # ## Returns
+    # Hash mapping phonemes to their transition frequencies
+    private def calculate_phoneme_transitions(word_analyses : Array(WordAnalysis)) : Hash(String, Hash(String, Float32))
+      transition_counts = Hash(String, Hash(String, Int32)).new { |h, k| h[k] = Hash(String, Int32).new(0) }
+      transition_totals = Hash(String, Int32).new(0)
+      
+      word_analyses.each do |analysis|
+        analysis.phoneme_transitions.each do |from_phoneme, to_phoneme|
+          transition_counts[from_phoneme][to_phoneme] += 1
+          transition_totals[from_phoneme] += 1
+        end
+      end
+      
+      # Convert counts to frequencies
+      transitions = Hash(String, Hash(String, Float32)).new
+      transition_counts.each do |from_phoneme, to_phonemes|
+        total = transition_totals[from_phoneme]
+        next if total == 0
+        
+        transitions[from_phoneme] = Hash(String, Float32).new
+        to_phonemes.each do |to_phoneme, count|
+          transitions[from_phoneme][to_phoneme] = count.to_f32 / total.to_f32
+        end
+      end
+      
+      transitions
+    end
+
+    # Calculates bigram frequencies.
+    #
+    # ## Parameters
+    # - `word_analyses`: Array of WordAnalysis instances
+    #
+    # ## Returns
+    # Hash mapping bigrams to their relative frequencies
+    private def calculate_bigram_frequencies(word_analyses : Array(WordAnalysis)) : Hash(String, Float32)
+      bigram_counts = Hash(String, Int32).new(0)
+      total_bigrams = 0
+      
+      word_analyses.each do |analysis|
+        analysis.bigrams.each do |bigram|
+          bigram_counts[bigram] += 1
+          total_bigrams += 1
+        end
+      end
+      
+      return Hash(String, Float32).new if total_bigrams == 0
+      
+      frequencies = Hash(String, Float32).new
+      bigram_counts.each do |bigram, count|
+        frequencies[bigram] = count.to_f32 / total_bigrams.to_f32
+      end
+      
+      frequencies
+    end
+
+    # Calculates trigram frequencies.
+    #
+    # ## Parameters
+    # - `word_analyses`: Array of WordAnalysis instances
+    #
+    # ## Returns
+    # Hash mapping trigrams to their relative frequencies
+    private def calculate_trigram_frequencies(word_analyses : Array(WordAnalysis)) : Hash(String, Float32)
+      trigram_counts = Hash(String, Int32).new(0)
+      total_trigrams = 0
+      
+      word_analyses.each do |analysis|
+        analysis.trigrams.each do |trigram|
+          trigram_counts[trigram] += 1
+          total_trigrams += 1
+        end
+      end
+      
+      return Hash(String, Float32).new if total_trigrams == 0
+      
+      frequencies = Hash(String, Float32).new
+      trigram_counts.each do |trigram, count|
+        frequencies[trigram] = count.to_f32 / total_trigrams.to_f32
+      end
+      
+      frequencies
+    end
+
+    # Calculates recommended gemination probability.
+    #
+    # ## Parameters
+    # - `gemination_patterns`: Hash mapping gemination patterns to frequencies
+    # - `word_analyses`: Array of WordAnalysis instances
+    #
+    # ## Returns
+    # Float32 representing the recommended gemination probability
+    private def calculate_recommended_gemination_probability(gemination_patterns : Hash(String, Float32), word_analyses : Array(WordAnalysis)) : Float32
+      total_words = word_analyses.size
+      words_with_gemination = word_analyses.count(&.has_gemination?)
+      
+      # Base probability on how many words contain gemination
+      base_probability = words_with_gemination.to_f32 / total_words.to_f32
+      
+      # Adjust based on gemination frequency
+      if gemination_patterns.size > 0
+        # If there are many different gemination patterns, increase probability
+        pattern_diversity = gemination_patterns.size.to_f32 / 5.0_f32
+        base_probability += pattern_diversity * 0.1
+      end
+      
+      # Clamp to reasonable bounds
+      [0.0_f32, [base_probability, 0.8_f32].min].max
     end
   end
 end

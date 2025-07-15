@@ -269,6 +269,67 @@ module WordMage
       end
     end
 
+    # Randomly selects a phoneme from the specified type with contextual transition weights.
+    #
+    # ## Parameters
+    # - `type`: Either `:consonant` or `:vowel`
+    # - `position`: Optional position constraint
+    # - `context`: Previous phoneme for transition weighting
+    # - `transitions`: Hash mapping phoneme transitions to frequencies
+    # - `transition_weight_factor`: Weight factor for transition probabilities
+    #
+    # ## Returns
+    # A randomly selected phoneme symbol that respects constraints and transition probabilities
+    def sample_phoneme(type : Symbol, position : Symbol?, context : String?, transitions : Hash(String, Hash(String, Float32)), transition_weight_factor : Float32) : String
+      candidates = case type
+                   when :consonant then get_consonants(position)
+                   when :vowel then get_vowels(position)
+                   else [] of String
+                   end
+      raise "No candidates available for type #{type} at position #{position}" if candidates.empty?
+      
+      # If no context or transitions, fall back to regular sampling
+      if context.nil? || transitions.empty? || !transitions[context]?
+        if @weights.empty?
+          return candidates.sample
+        else
+          return weighted_sample(candidates)
+        end
+      end
+      
+      # Use transition-aware weighted sampling
+      transition_weighted_sample(candidates, context, transitions, transition_weight_factor)
+    end
+
+    # Randomly selects a phoneme using positional frequencies for word-initial selection.
+    #
+    # ## Parameters
+    # - `type`: Either `:consonant` or `:vowel`
+    # - `position`: Optional position constraint
+    # - `context`: Previous phoneme for transition weighting (nil for word-initial)
+    # - `transitions`: Hash mapping phoneme transitions to frequencies
+    # - `transition_weight_factor`: Weight factor for transition probabilities
+    # - `positional_frequencies`: Hash mapping phonemes to their positional frequency distributions
+    #
+    # ## Returns
+    # A randomly selected phoneme symbol that respects constraints and positional frequencies
+    def sample_phoneme(type : Symbol, position : Symbol?, context : String?, transitions : Hash(String, Hash(String, Float32)), transition_weight_factor : Float32, positional_frequencies : Hash(String, Hash(String, Float32))) : String
+      candidates = case type
+                   when :consonant then get_consonants(position)
+                   when :vowel then get_vowels(position)
+                   else [] of String
+                   end
+      raise "No candidates available for type #{type} at position #{position}" if candidates.empty?
+      
+      # Use positional frequencies for word-initial selection
+      if position == :initial && !positional_frequencies.empty?
+        positional_weighted_sample(candidates, position, positional_frequencies, transition_weight_factor)
+      else
+        # Fall back to regular contextual sampling
+        sample_phoneme(type, position, context, transitions, transition_weight_factor)
+      end
+    end
+
     # Randomly selects a phoneme from a custom group, respecting position and weights.
     #
     # ## Parameters
@@ -313,6 +374,115 @@ module WordMage
 
       # Fallback (should not reach here in normal circumstances)
       weighted_candidates.first.symbol
+    end
+
+    # Weighted sampling that combines base weights with transition probabilities.
+    #
+    # ## Parameters
+    # - `candidates`: Array of candidate phoneme symbols
+    # - `context`: Previous phoneme for transition weighting
+    # - `transitions`: Hash mapping phoneme transitions to frequencies
+    # - `transition_weight_factor`: Weight factor for transition probabilities
+    #
+    # ## Returns
+    # A randomly selected phoneme symbol based on combined weights
+    private def transition_weighted_sample(candidates : Array(String), context : String, transitions : Hash(String, Hash(String, Float32)), transition_weight_factor : Float32) : String
+      # Calculate combined weights for each candidate
+      weighted_candidates = [] of {String, Float32}
+      
+      candidates.each do |candidate|
+        # Base weight from phoneme frequency
+        base_weight = 1.0_f32
+        if phoneme_instance = find_phoneme_by_symbol(candidate)
+          base_weight = @weights[phoneme_instance]? || 1.0_f32
+        end
+        
+        # Transition weight from context
+        transition_weight = 0.0_f32
+        if context_transitions = transitions[context]?
+          transition_weight = context_transitions[candidate]? || 0.0_f32
+        end
+        
+        # Combine weights: base weight + (transition probability * factor)
+        combined_weight = base_weight + (transition_weight * transition_weight_factor)
+        
+        # Ensure minimum weight to allow some randomness
+        combined_weight = [combined_weight, 0.1_f32].max
+        
+        weighted_candidates << {candidate, combined_weight}
+      end
+      
+      # Select based on combined weights
+      total_weight = weighted_candidates.sum(&.last)
+      threshold = Random.rand * total_weight
+      
+      cumulative_weight = 0.0_f32
+      weighted_candidates.each do |candidate, weight|
+        cumulative_weight += weight
+        if cumulative_weight >= threshold
+          return candidate
+        end
+      end
+      
+      # Fallback
+      weighted_candidates.last.first
+    end
+
+    # Weighted sampling that uses positional frequencies for word-initial phonemes.
+    #
+    # ## Parameters
+    # - `candidates`: Array of candidate phoneme symbols
+    # - `position`: Word position (:initial, :medial, :final)
+    # - `positional_frequencies`: Hash mapping phonemes to their positional frequency distributions
+    # - `weight_factor`: Weight factor for positional frequencies
+    #
+    # ## Returns
+    # A randomly selected phoneme symbol based on positional frequencies
+    private def positional_weighted_sample(candidates : Array(String), position : Symbol, positional_frequencies : Hash(String, Hash(String, Float32)), weight_factor : Float32) : String
+      weighted_candidates = [] of {String, Float32}
+      position_key = position.to_s
+      
+      candidates.each do |candidate|
+        # Base weight from phoneme frequency
+        base_weight = 1.0_f32
+        if phoneme_instance = find_phoneme_by_symbol(candidate)
+          base_weight = @weights[phoneme_instance]? || 1.0_f32
+        end
+        
+        # Positional weight
+        positional_weight = 0.0_f32
+        if candidate_positions = positional_frequencies[candidate]?
+          positional_weight = candidate_positions[position_key]? || 0.0_f32
+        end
+        
+        # Combine weights: base weight + (positional frequency * factor)
+        combined_weight = base_weight + (positional_weight * weight_factor)
+        
+        # Ensure minimum weight to allow some randomness
+        combined_weight = [combined_weight, 0.1_f32].max
+        
+        weighted_candidates << {candidate, combined_weight}
+      end
+      
+      # Select based on combined weights
+      total_weight = weighted_candidates.sum(&.last)
+      threshold = Random.rand * total_weight
+      
+      cumulative_weight = 0.0_f32
+      weighted_candidates.each do |candidate, weight|
+        cumulative_weight += weight
+        if cumulative_weight >= threshold
+          return candidate
+        end
+      end
+      
+      # Fallback
+      weighted_candidates.last.first
+    end
+
+    # Public method to find a phoneme by its symbol
+    def get_phoneme_by_symbol(symbol : String) : IPA::Phoneme?
+      (@consonants + @vowels).find { |p| p.symbol == symbol }
     end
 
     # Helper method to resolve a single phoneme input to an IPA::Phoneme instance

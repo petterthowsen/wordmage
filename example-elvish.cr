@@ -186,12 +186,14 @@ dakrion
 kyrio
 loron
 lorvie
-kem
+kemye
 ritzagra
 gorom
 aggonza
 gorath
 drayagra
+ekir
+drayeki
 jy
 jyne
 tiry
@@ -201,7 +203,10 @@ kirith
 ora
 varanya
 aggonya
+aggon
 aggorim
+thaggor
+naggar
 rimlare
 rimakros
 glys
@@ -244,6 +249,8 @@ end
 
 puts "Vowel harmony strength: #{analysis.vowel_harmony_strength}"
 puts "Transition diversity: #{analysis.vowel_transition_diversity.round(2)}"
+puts "Gemination patterns: #{analysis.gemination_patterns.to_pretty_json}"
+puts "Vowel lengthening patterns: #{analysis.vowel_lengthening_patterns.to_pretty_json}"
 
 puts "\n### Creating Generator from Analysis (with automatic vowel harmony)"
 analyzed_generator = WordMage::GeneratorBuilder.create
@@ -253,15 +260,17 @@ analyzed_generator = WordMage::GeneratorBuilder.create
     regular_template, vowel_template, cluster_template, coda_template
   ])  # Define cluster-constrained templates BEFORE analysis
   .with_romanization(romanization)
-  .with_analysis_of_words(target_words)  # Automatically includes vowel harmony!
+  .with_analysis_of_words(target_words, analysis_weight_factor: 100.0_f32)
   .with_hiatus_escalation(10.0_f32)
-  .with_vowel_harmony_strength(0.8_f32)  # Adjust harmony strength
-  .with_complexity_budget(5)
+  .with_vowel_harmony_strength(1.0_f32)
+  .with_complexity_budget(6)
+  .with_gemination_probability(0.1_f32)
+  #.with_vowel_lengthening_probability(1_f32)
   .random_mode
   .build
 
 puts "\n### Words Generated from Analysis (should match target style)"
-10.times do |i|
+20.times do |i|
   word = analyzed_generator.generate
   puts "#{i + 1}. #{word}"
 end

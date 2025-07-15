@@ -69,6 +69,11 @@ module WordMage
       gemination_sequences = detect_gemination(phonemes)
       vowel_lengthening_sequences = detect_vowel_lengthening(phonemes)
       
+      # Detect phoneme transitions and n-grams
+      phoneme_transitions = detect_phoneme_transitions(phonemes)
+      bigrams = detect_bigrams(phonemes)
+      trigrams = detect_trigrams(phonemes)
+      
       # Calculate complexity score
       complexity_score = calculate_complexity(clusters, hiatus_sequences, syllable_patterns)
       
@@ -88,7 +93,10 @@ module WordMage
         hiatus_sequences: hiatus_sequences,
         phoneme_positions: phoneme_positions,
         gemination_sequences: gemination_sequences,
-        vowel_lengthening_sequences: vowel_lengthening_sequences
+        vowel_lengthening_sequences: vowel_lengthening_sequences,
+        phoneme_transitions: phoneme_transitions,
+        bigrams: bigrams,
+        trigrams: trigrams
       )
     end
 
@@ -515,6 +523,61 @@ module WordMage
       end
       
       lengthening
+    end
+
+    # Detects phoneme transitions (phoneme -> next_phoneme pairs) in the phoneme array.
+    #
+    # ## Parameters
+    # - `phonemes`: Array of phonemes
+    #
+    # ## Returns
+    # Array of transition tuples (from_phoneme, to_phoneme)
+    private def detect_phoneme_transitions(phonemes : Array(String)) : Array({String, String})
+      transitions = [] of {String, String}
+      
+      (0...phonemes.size-1).each do |i|
+        from_phoneme = phonemes[i]
+        to_phoneme = phonemes[i+1]
+        transitions << {from_phoneme, to_phoneme}
+      end
+      
+      transitions
+    end
+
+    # Detects bigrams (two-phoneme sequences) in the phoneme array.
+    #
+    # ## Parameters
+    # - `phonemes`: Array of phonemes
+    #
+    # ## Returns
+    # Array of bigram strings
+    private def detect_bigrams(phonemes : Array(String)) : Array(String)
+      bigrams = [] of String
+      
+      (0...phonemes.size-1).each do |i|
+        bigram = phonemes[i] + phonemes[i+1]
+        bigrams << bigram
+      end
+      
+      bigrams
+    end
+
+    # Detects trigrams (three-phoneme sequences) in the phoneme array.
+    #
+    # ## Parameters
+    # - `phonemes`: Array of phonemes
+    #
+    # ## Returns
+    # Array of trigram strings
+    private def detect_trigrams(phonemes : Array(String)) : Array(String)
+      trigrams = [] of String
+      
+      (0...phonemes.size-2).each do |i|
+        trigram = phonemes[i] + phonemes[i+1] + phonemes[i+2]
+        trigrams << trigram
+      end
+      
+      trigrams
     end
   end
 end

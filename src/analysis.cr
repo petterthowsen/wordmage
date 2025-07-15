@@ -62,6 +62,9 @@ module WordMage
     # Recommended hiatus probability
     property recommended_hiatus_probability : Float32
 
+    # Recommended gemination probability based on detected patterns
+    property recommended_gemination_probability : Float32
+
     # Most common syllable patterns
     property dominant_patterns : Array(String)
 
@@ -73,6 +76,15 @@ module WordMage
 
     # Frequency of vowel lengthening patterns
     property vowel_lengthening_patterns : Hash(String, Float32)
+
+    # Phoneme transition frequencies: phoneme -> {next_phoneme -> frequency}
+    property phoneme_transitions : Hash(String, Hash(String, Float32))
+
+    # Bigram frequencies: phoneme_pair -> frequency
+    property bigram_frequencies : Hash(String, Float32)
+
+    # Trigram frequencies: phoneme_triple -> frequency
+    property trigram_frequencies : Hash(String, Float32)
 
     # Creates a new Analysis with specified parameters.
     def initialize(@phoneme_frequencies : Hash(String, Float32) = Hash(String, Float32).new,
@@ -88,10 +100,14 @@ module WordMage
                    @recommended_budget : Int32 = 6,
                    @recommended_templates : Array(String) = [] of String,
                    @recommended_hiatus_probability : Float32 = 0.2_f32,
+                   @recommended_gemination_probability : Float32 = 0.0_f32,
                    @dominant_patterns : Array(String) = [] of String,
                    @vowel_transitions : Hash(String, Hash(String, Float32)) = Hash(String, Hash(String, Float32)).new,
                    @gemination_patterns : Hash(String, Float32) = Hash(String, Float32).new,
-                   @vowel_lengthening_patterns : Hash(String, Float32) = Hash(String, Float32).new)
+                   @vowel_lengthening_patterns : Hash(String, Float32) = Hash(String, Float32).new,
+                   @phoneme_transitions : Hash(String, Hash(String, Float32)) = Hash(String, Hash(String, Float32)).new,
+                   @bigram_frequencies : Hash(String, Float32) = Hash(String, Float32).new,
+                   @trigram_frequencies : Hash(String, Float32) = Hash(String, Float32).new)
     end
 
     # Returns the most frequent phonemes in order.
@@ -357,6 +373,109 @@ module WordMage
       when 0.4...0.7 then :moderate
       else :strong
       end
+    end
+
+    # Returns the most frequent bigrams in order.
+    #
+    # ## Parameters
+    # - `count`: Number of top bigrams to return (default: 10)
+    #
+    # ## Returns
+    # Array of bigram strings ordered by frequency
+    def most_frequent_bigrams(count : Int32 = 10) : Array(String)
+      @bigram_frequencies.to_a
+        .sort_by { |_, freq| -freq }
+        .first(count)
+        .map { |bigram, _| bigram }
+    end
+
+    # Returns the most frequent trigrams in order.
+    #
+    # ## Parameters
+    # - `count`: Number of top trigrams to return (default: 10)
+    #
+    # ## Returns
+    # Array of trigram strings ordered by frequency
+    def most_frequent_trigrams(count : Int32 = 10) : Array(String)
+      @trigram_frequencies.to_a
+        .sort_by { |_, freq| -freq }
+        .first(count)
+        .map { |trigram, _| trigram }
+    end
+
+    # Returns the most common phonemes that follow a given phoneme.
+    #
+    # ## Parameters
+    # - `phoneme`: The source phoneme
+    # - `count`: Number of top transitions to return (default: 5)
+    #
+    # ## Returns
+    # Array of {next_phoneme, frequency} tuples ordered by frequency
+    def most_common_followers(phoneme : String, count : Int32 = 5) : Array({String, Float32})
+      return [] of {String, Float32} unless @phoneme_transitions[phoneme]?
+      
+      @phoneme_transitions[phoneme].to_a
+        .sort_by { |_, freq| -freq }
+        .first(count)
+    end
+
+    # Returns the transition probability between two phonemes.
+    #
+    # ## Parameters
+    # - `from_phoneme`: The source phoneme
+    # - `to_phoneme`: The target phoneme
+    #
+    # ## Returns
+    # Float32 probability (0.0 if transition not found)
+    def transition_probability(from_phoneme : String, to_phoneme : String) : Float32
+      return 0.0_f32 unless @phoneme_transitions[from_phoneme]?
+      @phoneme_transitions[from_phoneme][to_phoneme]? || 0.0_f32
+    end
+
+    # Returns the frequency of a specific bigram.
+    #
+    # ## Parameters
+    # - `bigram`: The two-phoneme sequence
+    #
+    # ## Returns
+    # Float32 frequency (0.0 if bigram not found)
+    def bigram_frequency(bigram : String) : Float32
+      @bigram_frequencies[bigram]? || 0.0_f32
+    end
+
+    # Returns the frequency of a specific trigram.
+    #
+    # ## Parameters
+    # - `trigram`: The three-phoneme sequence
+    #
+    # ## Returns
+    # Float32 frequency (0.0 if trigram not found)
+    def trigram_frequency(trigram : String) : Float32
+      @trigram_frequencies[trigram]? || 0.0_f32
+    end
+
+    # Calculates the n-gram diversity (entropy) of the language.
+    #
+    # ## Returns
+    # Hash with bigram and trigram diversity scores
+    def ngram_diversity : Hash(String, Float32)
+      {
+        "bigram" => calculate_entropy(@bigram_frequencies),
+        "trigram" => calculate_entropy(@trigram_frequencies)
+      }
+    end
+
+    # Helper method to calculate entropy of a frequency distribution.
+    private def calculate_entropy(frequencies : Hash(String, Float32)) : Float32
+      return 0.0_f32 if frequencies.empty?
+      
+      entropy = 0.0_f32
+      frequencies.each do |_, freq|
+        next if freq <= 0
+        entropy -= freq * Math.log2(freq)
+      end
+      
+      entropy
     end
 
     # Validates the analysis data for consistency.

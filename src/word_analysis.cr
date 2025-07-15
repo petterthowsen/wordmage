@@ -64,6 +64,15 @@ module WordMage
     # Vowel lengthening sequences found in the word
     property vowel_lengthening_sequences : Array(String)
 
+    # Phoneme transitions in the word (phoneme -> next_phoneme)
+    property phoneme_transitions : Array({String, String})
+
+    # Bigrams found in the word
+    property bigrams : Array(String)
+
+    # Trigrams found in the word
+    property trigrams : Array(String)
+
     # Creates a new WordAnalysis.
     #
     # ## Parameters
@@ -80,12 +89,16 @@ module WordMage
     # - `phoneme_positions`: Hash mapping positions to arrays of phonemes
     # - `gemination_sequences`: Array of gemination sequences
     # - `vowel_lengthening_sequences`: Array of vowel lengthening sequences
+    # - `phoneme_transitions`: Array of phoneme transition tuples
+    # - `bigrams`: Array of bigrams
+    # - `trigrams`: Array of trigrams
     def initialize(@syllable_count : Int32, @consonant_count : Int32, @vowel_count : Int32, 
                    @hiatus_count : Int32, @cluster_count : Int32, @complexity_score : Int32,
                    @phonemes : Array(String), @syllable_patterns : Array(String),
                    @clusters : Array(String) = [] of String, @hiatus_sequences : Array(String) = [] of String,
                    @phoneme_positions : Hash(Symbol, Array(String)) = Hash(Symbol, Array(String)).new,
-                   @gemination_sequences : Array(String) = [] of String, @vowel_lengthening_sequences : Array(String) = [] of String)
+                   @gemination_sequences : Array(String) = [] of String, @vowel_lengthening_sequences : Array(String) = [] of String,
+                   @phoneme_transitions : Array({String, String}) = [] of {String, String}, @bigrams : Array(String) = [] of String, @trigrams : Array(String) = [] of String)
     end
 
     # Returns the ratio of consonants to vowels.
