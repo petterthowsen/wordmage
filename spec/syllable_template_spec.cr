@@ -17,6 +17,16 @@ describe WordMage::SyllableTemplate do
       template = WordMage::SyllableTemplate.new("CV", hiatus_probability: 0.5_f32)
       template.hiatus_probability.should eq(0.5_f32)
     end
+
+    it "creates a syllable template with custom probability" do
+      template = WordMage::SyllableTemplate.new("CV", probability: 2.5_f32)
+      template.probability.should eq(2.5_f32)
+    end
+
+    it "defaults probability to 1.0 when not specified" do
+      template = WordMage::SyllableTemplate.new("CV")
+      template.probability.should eq(1.0_f32)
+    end
   end
 
   describe "#generate" do

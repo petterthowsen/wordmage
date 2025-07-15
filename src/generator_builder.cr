@@ -138,6 +138,29 @@ module WordMage
       self
     end
 
+    # Sets syllable patterns with custom probabilities.
+    #
+    # ## Parameters
+    # - `patterns_with_probabilities`: Hash mapping pattern strings to their relative probabilities
+    #
+    # ## Returns
+    # Self for method chaining
+    #
+    # ## Example
+    # ```crystal
+    # .with_syllable_pattern_probabilities({
+    #   "CV" => 3.0,   # CV patterns are 3x more likely
+    #   "CVC" => 2.0,  # CVC patterns are 2x more likely
+    #   "CCV" => 1.0   # CCV patterns have baseline probability
+    # })
+    # ```
+    def with_syllable_pattern_probabilities(patterns_with_probabilities : Hash(String, Float32))
+      @syllable_templates = patterns_with_probabilities.map { |pattern, probability| 
+        SyllableTemplate.new(pattern, probability: probability) 
+      }
+      self
+    end
+
     # Sets syllable templates directly for advanced configuration.
     #
     # ## Parameters

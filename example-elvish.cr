@@ -75,7 +75,7 @@ simple_generator = WordMage::GeneratorBuilder.create
   .with_syllable_count(WordMage::SyllableCountSpec.weighted({
     2 => 3.0_f32,    # Most common for elegant words
     3 => 4.0_f32,    # Very common
-    4 => 2.0_f32,    # Less common  
+    4 => 2.0_f32,    # Less common
     5 => 1.0_f32     # Rare, for long names
   }))
   .with_romanization(romanization)
@@ -95,7 +95,7 @@ medium_generator = WordMage::GeneratorBuilder.create
     2 => 3.0_f32, 3 => 4.0_f32, 4 => 2.0_f32, 5 => 1.0_f32
   }))
   .with_romanization(romanization)
-  .with_complexity_budget(8)  # Moderate complexity
+  .with_complexity_budget(6)  # Moderate complexity
   .random_mode
   .build
 
@@ -121,7 +121,7 @@ puts "Flowing, easy-to-pronounce words like 'andrasy', 'nazagon':"
   puts "#{i + 1}. #{word}"
 end
 
-puts "\n## Medium Complexity Words (Budget: 8)"
+puts "\n## Medium Complexity Words (Budget: 6)"
 puts "Balanced words with some clusters and complexity:"
 10.times do |i|
   word = medium_generator.generate

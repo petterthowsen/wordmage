@@ -131,6 +131,36 @@ describe WordMage::WordSpec do
       
       template1_count.should be > 25  # Should be heavily weighted toward template1
     end
+
+    it "respects template probabilities when no position weights" do
+      template1 = WordMage::SyllableTemplate.new("CV", probability: 5.0_f32)
+      template2 = WordMage::SyllableTemplate.new("CVC", probability: 1.0_f32)
+      templates = [template1, template2]
+      
+      syllable_count = WordMage::SyllableCountSpec.exact(2)
+      word_spec = WordMage::WordSpec.new(syllable_count: syllable_count, syllable_templates: templates)
+      
+      # With these probabilities, template1 should be selected much more often
+      results = (1..100).map { word_spec.select_template(:initial) }
+      template1_count = results.count(template1)
+      
+      template1_count.should be > 60  # Should be heavily weighted toward template1
+    end
+
+    it "combines template probability with position weights" do
+      template1 = WordMage::SyllableTemplate.new("CV", probability: 2.0_f32, position_weights: {:initial => 3.0_f32})
+      template2 = WordMage::SyllableTemplate.new("CVC", probability: 1.0_f32, position_weights: {:initial => 1.0_f32})
+      templates = [template1, template2]
+      
+      syllable_count = WordMage::SyllableCountSpec.exact(2)
+      word_spec = WordMage::WordSpec.new(syllable_count: syllable_count, syllable_templates: templates)
+      
+      # Combined weight: template1 = 2.0 * 3.0 = 6.0, template2 = 1.0 * 1.0 = 1.0
+      results = (1..100).map { word_spec.select_template(:initial) }
+      template1_count = results.count(template1)
+      
+      template1_count.should be > 70  # Should be heavily weighted toward template1
+    end
   end
 
   describe "#validate_word" do

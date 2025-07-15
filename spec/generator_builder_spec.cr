@@ -80,6 +80,38 @@ describe WordMage::GeneratorBuilder do
     end
   end
 
+  describe "#with_syllable_pattern_probabilities" do
+    it "creates syllable templates with custom probabilities" do
+      patterns_with_probabilities = {"CV" => 3.0_f32, "CVC" => 1.5_f32, "CCV" => 0.5_f32}
+      
+      generator = WordMage::GeneratorBuilder.create
+        .with_phonemes(["p", "t"], ["a", "e"])
+        .with_syllable_pattern_probabilities(patterns_with_probabilities)
+        .with_syllable_count(WordMage::SyllableCountSpec.exact(1))
+        .build
+      
+      templates = generator.word_spec.syllable_templates
+      templates.size.should eq(3)
+      
+      # Check that probabilities were set correctly
+      cv_template = templates.find { |t| t.pattern == "CV" }.not_nil!
+      cvc_template = templates.find { |t| t.pattern == "CVC" }.not_nil!
+      ccv_template = templates.find { |t| t.pattern == "CCV" }.not_nil!
+      
+      cv_template.probability.should eq(3.0_f32)
+      cvc_template.probability.should eq(1.5_f32)
+      ccv_template.probability.should eq(0.5_f32)
+    end
+
+    it "returns self for fluent chaining" do
+      builder = WordMage::GeneratorBuilder.create
+        .with_phonemes(["p"], ["a"])
+      result = builder.with_syllable_pattern_probabilities({"CV" => 1.0_f32})
+      
+      result.should be(builder)
+    end
+  end
+
   describe "#with_syllable_count" do
     it "sets the syllable count specification" do
       spec = WordMage::SyllableCountSpec.range(2, 4)

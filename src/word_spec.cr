@@ -128,24 +128,41 @@ module WordMage
     # - `position`: Syllable position (`:initial`, `:medial`, `:final`)
     #
     # ## Returns
-    # A syllable template, respecting position weights if present
+    # A syllable template, respecting both probability and position weights
     def select_template(position : Symbol) : SyllableTemplate
-      weighted_templates = @syllable_templates.select { |t| t.position_weights.has_key?(position) }
+      # Filter templates that have position weights for this position
+      position_weighted_templates = @syllable_templates.select { |t| t.position_weights.has_key?(position) }
 
-      if weighted_templates.empty?
-        @syllable_templates.sample
+      if position_weighted_templates.empty?
+        # No position weights - use template probability only
+        weighted_sample_by_probability(@syllable_templates)
       else
-        total_weight = weighted_templates.sum { |t| t.position_weights[position] }
+        # Use combined weight: template probability * position weight
+        total_weight = position_weighted_templates.sum { |t| t.probability * t.position_weights[position] }
         target = Random.rand * total_weight
         current_weight = 0.0_f32
 
-        weighted_templates.each do |template|
-          current_weight += template.position_weights[position]
+        position_weighted_templates.each do |template|
+          current_weight += template.probability * template.position_weights[position]
           return template if current_weight >= target
         end
 
-        weighted_templates.first
+        position_weighted_templates.first
       end
+    end
+
+    # Selects a template using weighted sampling based on probability only
+    private def weighted_sample_by_probability(templates : Array(SyllableTemplate)) : SyllableTemplate
+      total_weight = templates.sum(&.probability)
+      target = Random.rand * total_weight
+      current_weight = 0.0_f32
+
+      templates.each do |template|
+        current_weight += template.probability
+        return template if current_weight >= target
+      end
+
+      templates.first
     end
 
     # Validates a word against constraints.
