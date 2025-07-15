@@ -638,6 +638,9 @@ module WordMage
       # Validate that all custom symbols in patterns are defined
       validate_pattern_symbols
       
+      # Validate thematic vowel if specified
+      validate_thematic_vowel
+      
       word_spec = WordSpec.new(
         syllable_count: @syllable_count.not_nil!,
         starting_type: @starting_type,
@@ -682,6 +685,18 @@ module WordMage
             raise "Pattern symbol '#{symbol}' is not defined. Use with_custom_group('#{symbol}', [...]) to define it."
           end
         end
+      end
+    end
+
+    private def validate_thematic_vowel
+      return unless @thematic_vowel && @phoneme_set
+      
+      phoneme_set = @phoneme_set.not_nil!
+      thematic_vowel = @thematic_vowel.not_nil!
+      
+      # Check if the thematic vowel matches any romanized vowel in the set
+      unless phoneme_set.vowels.any?(&.romanization.== thematic_vowel)
+        raise ArgumentError.new("Thematic vowel '#{thematic_vowel}' is not in the vowel set")
       end
     end
   end

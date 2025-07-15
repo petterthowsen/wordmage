@@ -109,7 +109,7 @@ module WordMage
         
         # Look for multi-character romanizations (e.g., "th" -> "θ")
         (2..4).reverse_each do |length|
-          break if i + length > word.size
+          next if i + length > word.size
           
           substring = word[i, length]
           if phoneme = @reverse_romanization[substring]?
@@ -138,43 +138,100 @@ module WordMage
     #
     # ## Returns
     # Array of syllables, where each syllable is an array of phonemes
-    private def detect_syllables(phonemes : Array(String)) : Array(Array(String))
+    def detect_syllables(phonemes : Array(String)) : Array(Array(String))
+      return [] of Array(String) if phonemes.empty?
       return [phonemes] if phonemes.size <= 2
       
       syllables = [] of Array(String)
       current_syllable = [] of String
+      i = 0
       
-      phonemes.each_with_index do |phoneme, i|
-        current_syllable << phoneme
+      syllable_closed = false
+      
+      while i < phonemes.size
+        current_syllable << phonemes[i]
         
-        # Syllable boundary conditions:
-        # 1. Vowel followed by consonant(s) followed by vowel
-        # 2. End of word
+        # Check for syllable boundary after this phoneme
         if i == phonemes.size - 1
           # End of word - close current syllable
           syllables << current_syllable
-        elsif is_vowel?(phoneme) && i + 1 < phonemes.size
-          # Look ahead for syllable boundary
-          next_phoneme = phonemes[i + 1]
+          syllable_closed = true
+        elsif is_vowel?(phonemes[i])
+          # After a vowel, check what comes next
+          next_i = i + 1
           
-          if is_consonant?(next_phoneme)
-            # V + C pattern, look further ahead
-            if i + 2 < phonemes.size && is_vowel?(phonemes[i + 2])
-              # V + C + V pattern - boundary after this vowel
-              syllables << current_syllable
-              current_syllable = [] of String
-            elsif i + 3 < phonemes.size && is_consonant?(phonemes[i + 2]) && is_vowel?(phonemes[i + 3])
-              # V + C + C + V pattern - boundary after first consonant
-              current_syllable << phonemes[i + 1]
-              syllables << current_syllable
-              current_syllable = [] of String
-              i += 1  # Skip the consonant we just added
+          if next_i < phonemes.size
+            next_phoneme = phonemes[next_i]
+            
+            if is_vowel?(next_phoneme)
+              # Two vowels in a row - check context to decide if they should be split
+              if phonemes[i] == next_phoneme
+                # Same vowel repeated - likely vowel lengthening, keep in same syllable
+                current_syllable << next_phoneme
+                i = next_i
+                
+                # Check if there's more content after this vowel sequence
+                if next_i + 1 < phonemes.size && is_consonant?(phonemes[next_i + 1])
+                  # Create syllable boundary after vowel lengthening
+                  syllables << current_syllable
+                  current_syllable = [] of String
+                end
+              else
+                # Different vowels - decide based on phonetic context
+                # Check if there's a consonant after the second vowel
+                if next_i + 1 < phonemes.size && is_consonant?(phonemes[next_i + 1])
+                  # Pattern: C...V1 V2 C - split as C...V1 | V2 C (like "ta-e-ron" or "spra-e-to")
+                  syllables << current_syllable
+                  current_syllable = [] of String
+                else
+                  # No consonant after second vowel - keep vowel sequences together
+                  current_syllable << next_phoneme
+                  i = next_i
+                  
+                  # Check if there's more content after this vowel sequence
+                  if next_i + 1 < phonemes.size && is_consonant?(phonemes[next_i + 1])
+                    # Create syllable boundary after the vowel sequence
+                    syllables << current_syllable
+                    current_syllable = [] of String
+                  end
+                end
+              end
+            elsif is_consonant?(next_phoneme)
+              # V + C pattern - standard syllable boundary logic
+              consonant_count = 0
+              look_ahead = next_i
+              
+              # Count consecutive consonants
+              while look_ahead < phonemes.size && is_consonant?(phonemes[look_ahead])
+                consonant_count += 1
+                look_ahead += 1
+              end
+              
+              # If we have a vowel after the consonants, decide where to split
+              if look_ahead < phonemes.size && is_vowel?(phonemes[look_ahead])
+                if consonant_count == 1
+                  # V + C + V pattern - boundary after vowel
+                  syllables << current_syllable
+                  current_syllable = [] of String
+                elsif consonant_count >= 2
+                  # V + CC... + V pattern - split consonants
+                  # Take first consonant with current syllable
+                  current_syllable << phonemes[next_i]
+                  syllables << current_syllable
+                  current_syllable = [] of String
+                  i = next_i  # Skip the consonant we just added
+                end
+              end
             end
-          elsif is_vowel?(next_phoneme)
-            # V + V pattern - potential hiatus or syllable boundary
-            # For now, keep them together
           end
         end
+        
+        i += 1
+      end
+      
+      # Only add the current syllable if it wasn't already closed
+      if !syllable_closed && !current_syllable.empty?
+        syllables << current_syllable
       end
       
       # Ensure we don't have empty syllables
@@ -317,9 +374,9 @@ module WordMage
     # - `phonemes`: Array of phonemes
     #
     # ## Returns
-    # Hash mapping phonemes to their positions
-    private def analyze_phoneme_positions(phonemes : Array(String)) : Hash(String, Array(Symbol))
-      positions = Hash(String, Array(Symbol)).new { |h, k| h[k] = [] of Symbol }
+    # Hash mapping positions to arrays of phonemes
+    private def analyze_phoneme_positions(phonemes : Array(String)) : Hash(Symbol, Array(String))
+      positions = Hash(Symbol, Array(String)).new { |h, k| h[k] = [] of String }
       
       phonemes.each_with_index do |phoneme, i|
         position = case i
@@ -328,7 +385,7 @@ module WordMage
                    else :medial
                    end
         
-        positions[phoneme] << position
+        positions[position] << phoneme
       end
       
       positions

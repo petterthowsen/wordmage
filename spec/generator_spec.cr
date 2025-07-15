@@ -517,4 +517,608 @@ describe WordMage::Generator do
       end
     end
   end
+
+  describe "thematic vowel constraints" do
+    it "enforces thematic vowel constraint with exact syllable count" do
+      phoneme_set = WordMage::PhonemeSet.new(Set{"t", "n", "k", "r", "s"}, Set{"a", "e", "i", "o"})
+      syllable_count = WordMage::SyllableCountSpec.exact(3)
+      templates = [WordMage::SyllableTemplate.new("CV"), WordMage::SyllableTemplate.new("CVC")]
+      word_spec = WordMage::WordSpec.new(
+        syllable_count: syllable_count,
+        syllable_templates: templates,
+        thematic_vowel: "a"
+      )
+      romanizer = WordMage::RomanizationMap.new({"t" => "t", "n" => "n", "k" => "k", "r" => "r", "s" => "s", "a" => "a", "e" => "e", "i" => "i", "o" => "o"})
+      
+      generator = WordMage::Generator.new(
+        phoneme_set: phoneme_set,
+        word_spec: word_spec,
+        romanizer: romanizer,
+        mode: WordMage::GenerationMode::Random
+      )
+      
+      # Generate multiple words and verify they all end with 'a'
+      10.times do
+        word = generator.generate
+        word.should be_a(String)
+        word.size.should be > 0
+        
+        # Use word analyzer to verify syllable count
+        analyzer = WordMage::WordAnalyzer.new(romanizer)
+        analysis = analyzer.analyze(word)
+        analysis.syllable_count.should eq(3)
+        
+        # Check that last vowel is 'a'
+        last_vowel = nil
+        word.chars.reverse.each do |char|
+          if phoneme_set.is_vowel?(char.to_s)
+            last_vowel = char.to_s
+            break
+          end
+        end
+        last_vowel.should eq("a")
+      end
+    end
+
+    it "enforces thematic vowel constraint with syllable range" do
+      phoneme_set = WordMage::PhonemeSet.new(Set{"t", "n", "k"}, Set{"a", "e", "i"})
+      syllable_count = WordMage::SyllableCountSpec.range(2, 4)
+      templates = [WordMage::SyllableTemplate.new("CV")]
+      word_spec = WordMage::WordSpec.new(
+        syllable_count: syllable_count,
+        syllable_templates: templates,
+        thematic_vowel: "e"
+      )
+      romanizer = WordMage::RomanizationMap.new({"t" => "t", "n" => "n", "k" => "k", "a" => "a", "e" => "e", "i" => "i"})
+      
+      generator = WordMage::Generator.new(
+        phoneme_set: phoneme_set,
+        word_spec: word_spec,
+        romanizer: romanizer,
+        mode: WordMage::GenerationMode::Random
+      )
+      
+      # Generate multiple words and verify syllable counts and thematic vowel
+      15.times do
+        word = generator.generate
+        
+        # Use word analyzer to verify syllable count is in range
+        analyzer = WordMage::WordAnalyzer.new(romanizer)
+        analysis = analyzer.analyze(word)
+        analysis.syllable_count.should be >= 2
+        analysis.syllable_count.should be <= 4
+        
+        # Check that last vowel is 'e'
+        last_vowel = nil
+        word.chars.reverse.each do |char|
+          if phoneme_set.is_vowel?(char.to_s)
+            last_vowel = char.to_s
+            break
+          end
+        end
+        last_vowel.should eq("e")
+      end
+    end
+
+    it "enforces thematic vowel with different syllable patterns" do
+      phoneme_set = WordMage::PhonemeSet.new(Set{"t", "r", "s", "l"}, Set{"a", "o", "u"})
+      syllable_count = WordMage::SyllableCountSpec.exact(2)
+      templates = [
+        WordMage::SyllableTemplate.new("CV"),
+        WordMage::SyllableTemplate.new("CVC")
+      ]
+      word_spec = WordMage::WordSpec.new(
+        syllable_count: syllable_count,
+        syllable_templates: templates,
+        thematic_vowel: "o"
+      )
+      romanizer = WordMage::RomanizationMap.new({"t" => "t", "r" => "r", "s" => "s", "l" => "l", "a" => "a", "o" => "o", "u" => "u"})
+      
+      generator = WordMage::Generator.new(
+        phoneme_set: phoneme_set,
+        word_spec: word_spec,
+        romanizer: romanizer,
+        mode: WordMage::GenerationMode::Random
+      )
+      
+      # Generate words with different patterns and verify thematic vowel
+      20.times do
+        word = generator.generate
+        
+        # Use word analyzer to verify syllable count
+        analyzer = WordMage::WordAnalyzer.new(romanizer)
+        analysis = analyzer.analyze(word)
+        analysis.syllable_count.should eq(2)
+        
+        # Check that last vowel is 'o'
+        last_vowel = nil
+        word.chars.reverse.each do |char|
+          if phoneme_set.is_vowel?(char.to_s)
+            last_vowel = char.to_s
+            break
+          end
+        end
+        last_vowel.should eq("o")
+      end
+    end
+
+    it "works with hiatus and maintains thematic vowel" do
+      phoneme_set = WordMage::PhonemeSet.new(Set{"t", "k", "n"}, Set{"a", "e", "i"})
+      syllable_count = WordMage::SyllableCountSpec.exact(2)
+      # Template with hiatus to create vowel sequences
+      templates = [WordMage::SyllableTemplate.new("CV", hiatus_probability: 1.0_f32)]
+      word_spec = WordMage::WordSpec.new(
+        syllable_count: WordMage::SyllableCountSpec.exact(4),
+        syllable_templates: templates,
+        thematic_vowel: "i"
+      )
+      romanizer = WordMage::RomanizationMap.new({"t" => "t", "k" => "k", "n" => "n", "a" => "a", "e" => "e", "i" => "i"})
+      
+      generator = WordMage::Generator.new(
+        phoneme_set: phoneme_set,
+        word_spec: word_spec,
+        romanizer: romanizer,
+        mode: WordMage::GenerationMode::Random
+      )
+      
+      # Generate words with hiatus and verify thematic vowel still applies
+      10.times do
+        word = generator.generate
+        
+        # Use word analyzer to verify syllable count
+        analyzer = WordMage::WordAnalyzer.new(romanizer)
+        analysis = analyzer.analyze(word)
+        analysis.syllable_count.should eq(7)
+        
+        # Should have vowel sequences due to hiatus
+        has_vowel_sequence = false
+        (0...word.size-1).each do |i|
+          char1 = word[i].to_s
+          char2 = word[i+1].to_s
+          if phoneme_set.is_vowel?(char1) && phoneme_set.is_vowel?(char2)
+            has_vowel_sequence = true
+            break
+          end
+        end
+        has_vowel_sequence.should be_true
+        
+        # Check that last vowel is still 'i' despite hiatus
+        last_vowel = nil
+        word.chars.reverse.each do |char|
+          if phoneme_set.is_vowel?(char.to_s)
+            last_vowel = char.to_s
+            break
+          end
+        end
+        last_vowel.should eq("i")
+      end
+    end
+
+    it "works with consonant clusters and maintains thematic vowel" do
+      phoneme_set = WordMage::PhonemeSet.new(Set{"s", "t", "r", "p"}, Set{"a", "e"})
+      syllable_count = WordMage::SyllableCountSpec.exact(2)
+      # CCV creates consonant clusters
+      templates = [WordMage::SyllableTemplate.new("CCV"), WordMage::SyllableTemplate.new("CV")]
+      word_spec = WordMage::WordSpec.new(
+        syllable_count: syllable_count,
+        syllable_templates: templates,
+        thematic_vowel: "a"
+      )
+      romanizer = WordMage::RomanizationMap.new({"s" => "s", "t" => "t", "r" => "r", "p" => "p", "a" => "a", "e" => "e"})
+      
+      generator = WordMage::Generator.new(
+        phoneme_set: phoneme_set,
+        word_spec: word_spec,
+        romanizer: romanizer,
+        mode: WordMage::GenerationMode::Random
+      )
+      
+      # Generate words with clusters and verify thematic vowel
+      15.times do
+        word = generator.generate
+        
+        # Use word analyzer to verify syllable count
+        analyzer = WordMage::WordAnalyzer.new(romanizer)
+        analysis = analyzer.analyze(word)
+        analysis.syllable_count.should eq(2)
+        
+        # Check that last vowel is 'a'
+        last_vowel = nil
+        word.chars.reverse.each do |char|
+          if phoneme_set.is_vowel?(char.to_s)
+            last_vowel = char.to_s
+            break
+          end
+        end
+        last_vowel.should eq("a")
+      end
+    end
+
+    it "validates thematic vowel is in phoneme set" do
+      # This should raise an error because "i" is not in the vowel set
+      expect_raises(ArgumentError, "Thematic vowel 'i' is not in the vowel set") do
+        WordMage::GeneratorBuilder.create
+          .with_phonemes(["t", "n"], ["a", "e"])
+          .with_syllable_patterns(["CV"])
+          .with_syllable_count(WordMage::SyllableCountSpec.exact(2))
+          .with_thematic_vowel("i")
+          .build
+      end
+    end
+  end
+
+  describe "sequence constraints" do
+    it "enforces starting_with_sequence constraint" do
+      generator = WordMage::GeneratorBuilder.create
+        .with_phonemes(["t", "h", "r", "a", "n", "s", "k"], ["a", "e", "i", "o"])
+        .with_syllable_patterns(["CV", "CVC", "CCV"])
+        .with_syllable_count(WordMage::SyllableCountSpec.range(2, 4))
+        .starting_with_sequence("thr")
+        .build
+      
+      romanizer = WordMage::RomanizationMap.new({"t" => "t", "h" => "h", "r" => "r", "a" => "a", "n" => "n", "s" => "s", "k" => "k", "e" => "e", "i" => "i", "o" => "o"})
+      
+      # Generate multiple words and verify they all start with "thr"
+      15.times do
+        word = generator.generate
+        word.should start_with("thr")
+        
+        # Use word analyzer to verify syllable count
+        analyzer = WordMage::WordAnalyzer.new(romanizer)
+        analysis = analyzer.analyze(word)
+# puts "DEBUG: Word '#{word}' has #{analysis.syllable_count} syllables (expected 2-4)"
+        analysis.syllable_count.should be >= 2
+        analysis.syllable_count.should be <= 4
+      end
+    end
+
+    it "enforces ending_with_sequence constraint" do
+      phoneme_set = WordMage::PhonemeSet.new(Set{"t", "h", "r", "a", "n", "s", "k"}, Set{"a", "e", "i", "o"})
+      syllable_count = WordMage::SyllableCountSpec.range(2, 3)
+      templates = [
+        WordMage::SyllableTemplate.new("CV"),
+        WordMage::SyllableTemplate.new("CVC")
+      ]
+      word_spec = WordMage::WordSpec.new(
+        syllable_count: syllable_count,
+        syllable_templates: templates,
+        ends_with: "ath"
+      )
+      romanizer = WordMage::RomanizationMap.new({"t" => "t", "h" => "h", "r" => "r", "a" => "a", "n" => "n", "s" => "s", "k" => "k", "e" => "e", "i" => "i", "o" => "o"})
+      
+      generator = WordMage::Generator.new(
+        phoneme_set: phoneme_set,
+        word_spec: word_spec,
+        romanizer: romanizer,
+        mode: WordMage::GenerationMode::Random
+      )
+      
+      # Generate multiple words and verify they all end with "ath"
+      15.times do
+        word = generator.generate
+        word.should end_with("ath")
+        
+        # Use word analyzer to verify syllable count
+        analyzer = WordMage::WordAnalyzer.new(romanizer)
+        analysis = analyzer.analyze(word)
+        analysis.syllable_count.should be >= 2
+        analysis.syllable_count.should be <= 3
+      end
+    end
+
+    it "combines starting and ending sequence constraints" do
+      phoneme_set = WordMage::PhonemeSet.new(Set{"t", "h", "r", "a", "n", "s", "k", "e", "l"}, Set{"a", "e", "i", "o"})
+      syllable_count = WordMage::SyllableCountSpec.range(3, 4)
+      templates = [
+        WordMage::SyllableTemplate.new("CV"),
+        WordMage::SyllableTemplate.new("CVC"),
+        WordMage::SyllableTemplate.new("CCV")
+      ]
+      word_spec = WordMage::WordSpec.new(
+        syllable_count: syllable_count,
+        syllable_templates: templates,
+        starts_with: "thr",
+        ends_with: "ath"
+      )
+      romanizer = WordMage::RomanizationMap.new({"t" => "t", "h" => "h", "r" => "r", "a" => "a", "n" => "n", "s" => "s", "k" => "k", "e" => "e", "i" => "i", "o" => "o", "l" => "l"})
+      
+      generator = WordMage::Generator.new(
+        phoneme_set: phoneme_set,
+        word_spec: word_spec,
+        romanizer: romanizer,
+        mode: WordMage::GenerationMode::Random
+      )
+      
+      # Generate multiple words and verify both constraints
+      10.times do
+        word = generator.generate
+        word.should start_with("thr")
+        word.should end_with("ath")
+        
+        # Use word analyzer to verify syllable count  
+        analyzer = WordMage::WordAnalyzer.new(romanizer)
+        analysis = analyzer.analyze(word)
+        analysis.syllable_count.should be >= 3
+        analysis.syllable_count.should be <= 4
+      end
+    end
+
+    it "combines sequence constraints with thematic vowel" do
+      phoneme_set = WordMage::PhonemeSet.new(Set{"t", "h", "r", "a", "n", "s", "k", "e"}, Set{"a", "e", "i", "o"})
+      syllable_count = WordMage::SyllableCountSpec.exact(3)
+      templates = [
+        WordMage::SyllableTemplate.new("CV"),
+        WordMage::SyllableTemplate.new("CVC")
+      ]
+      word_spec = WordMage::WordSpec.new(
+        syllable_count: syllable_count,
+        syllable_templates: templates,
+        starts_with: "th",
+        thematic_vowel: "a"
+      )
+      romanizer = WordMage::RomanizationMap.new({"t" => "t", "h" => "h", "r" => "r", "a" => "a", "n" => "n", "s" => "s", "k" => "k", "e" => "e", "i" => "i", "o" => "o"})
+      
+      generator = WordMage::Generator.new(
+        phoneme_set: phoneme_set,
+        word_spec: word_spec,
+        romanizer: romanizer,
+        mode: WordMage::GenerationMode::Random
+      )
+      
+      # Generate multiple words and verify all constraints
+      10.times do
+        word = generator.generate
+        word.should start_with("th")
+        
+        # Check that last vowel is 'a' (thematic vowel)
+        last_vowel = nil
+        word.chars.reverse.each do |char|
+          if phoneme_set.is_vowel?(char.to_s)
+            last_vowel = char.to_s
+            break
+          end
+        end
+        last_vowel.should eq("a")
+        
+        # Use word analyzer to verify syllable count
+        analyzer = WordMage::WordAnalyzer.new(romanizer)
+        analysis = analyzer.analyze(word)
+        analysis.syllable_count.should eq(3)
+      end
+    end
+
+    it "validates sequence constraints with diverse syllable patterns" do
+      phoneme_set = WordMage::PhonemeSet.new(Set{"s", "p", "r", "t", "k", "n"}, Set{"a", "e", "o"})
+      syllable_count = WordMage::SyllableCountSpec.range(2, 3)
+      templates = [
+        WordMage::SyllableTemplate.new("V"),
+        WordMage::SyllableTemplate.new("CV"),
+        WordMage::SyllableTemplate.new("CVC"),
+        WordMage::SyllableTemplate.new("CCV"),
+        WordMage::SyllableTemplate.new("CCVC")
+      ]
+      word_spec = WordMage::WordSpec.new(
+        syllable_count: syllable_count,
+        syllable_templates: templates,
+        starts_with: "spr"
+      )
+      romanizer = WordMage::RomanizationMap.new({"s" => "s", "p" => "p", "r" => "r", "t" => "t", "k" => "k", "n" => "n", "a" => "a", "e" => "e", "o" => "o"})
+      
+      generator = WordMage::Generator.new(
+        phoneme_set: phoneme_set,
+        word_spec: word_spec,
+        romanizer: romanizer,
+        mode: WordMage::GenerationMode::Random
+      )
+      
+      # Generate words with complex patterns and verify constraints
+      10.times do
+        word = generator.generate
+        word.should start_with("spr")
+        
+        # Use word analyzer to verify proper syllable structure
+        analyzer = WordMage::WordAnalyzer.new(romanizer)
+        analysis = analyzer.analyze(word)
+        analysis.syllable_count.should be >= 2
+        analysis.syllable_count.should be <= 3
+        
+        # Should contain consonant clusters due to CCV/CCVC patterns
+        analysis.cluster_count.should be >= 1
+      end
+    end
+  end
+
+  describe "phonological features" do
+    it "generates words with gemination (consonant doubling)" do
+      generator = WordMage::GeneratorBuilder.create
+        .with_phonemes(["t", "n", "k", "r", "s"], ["a", "e", "i", "o"])
+        .with_syllable_patterns(["CV", "CVC"])
+        .with_syllable_count(WordMage::SyllableCountSpec.range(2, 4))
+        .with_gemination_probability(1.0)  # 100% gemination
+        .build
+      
+      romanizer = WordMage::RomanizationMap.new({"t" => "t", "n" => "n", "k" => "k", "r" => "r", "s" => "s", "a" => "a", "e" => "e", "i" => "i", "o" => "o"})
+      
+      # Generate multiple words and verify gemination occurs
+      found_gemination = false
+      20.times do
+        word = generator.generate
+        
+        # Use word analyzer to detect gemination
+        analyzer = WordMage::WordAnalyzer.new(romanizer)
+        analysis = analyzer.analyze(word)
+        
+        if analysis.gemination_sequences.size > 0
+          found_gemination = true
+          analysis.gemination_sequences.each do |gemination|
+            gemination.size.should eq(2)  # Double consonants
+          end
+        end
+        
+        # Verify syllable count
+        analysis.syllable_count.should be >= 2
+        analysis.syllable_count.should be <= 4
+      end
+      
+      found_gemination.should be_true
+    end
+
+    it "generates words with vowel lengthening (vowel doubling)" do
+      generator = WordMage::GeneratorBuilder.create
+        .with_phonemes(["t", "n", "k"], ["a", "e", "i", "o"])
+        .with_syllable_patterns(["CV", "CVC"])
+        .with_syllable_count(WordMage::SyllableCountSpec.range(2, 3))
+        .with_vowel_lengthening_probability(1.0)  # 100% vowel lengthening
+        .build
+      
+      romanizer = WordMage::RomanizationMap.new({"t" => "t", "n" => "n", "k" => "k", "a" => "a", "e" => "e", "i" => "i", "o" => "o"})
+      
+      # Generate multiple words and verify vowel lengthening occurs
+      found_lengthening = false
+      20.times do
+        word = generator.generate
+        
+        # Use word analyzer to detect vowel lengthening
+        analyzer = WordMage::WordAnalyzer.new(romanizer)
+        analysis = analyzer.analyze(word)
+        
+        if analysis.vowel_lengthening_sequences.size > 0
+          found_lengthening = true
+          analysis.vowel_lengthening_sequences.each do |lengthening|
+            lengthening.size.should eq(2)  # Double vowels
+          end
+        end
+        
+        # Verify syllable count (allow +1 for vowel lengthening effects)
+        analysis.syllable_count.should be >= 2
+        analysis.syllable_count.should be <= 4
+      end
+      
+      found_lengthening.should be_true
+    end
+
+    it "combines gemination and vowel lengthening features" do
+      generator = WordMage::GeneratorBuilder.create
+        .with_phonemes(["t", "n", "r", "s"], ["a", "e", "i"])
+        .with_syllable_patterns(["CV", "CVC"])
+        .with_syllable_count(WordMage::SyllableCountSpec.exact(3))
+        .with_gemination_probability(0.7)      # 70% gemination
+        .with_vowel_lengthening_probability(0.5)  # 50% vowel lengthening
+        .build
+      
+      romanizer = WordMage::RomanizationMap.new({"t" => "t", "n" => "n", "r" => "r", "s" => "s", "a" => "a", "e" => "e", "i" => "i"})
+      
+      # Generate multiple words and check for both features
+      found_both = false
+      30.times do
+        word = generator.generate
+        
+        # Use word analyzer to detect both features
+        analyzer = WordMage::WordAnalyzer.new(romanizer)
+        analysis = analyzer.analyze(word)
+        
+        has_gemination = analysis.gemination_sequences.size > 0
+        has_lengthening = analysis.vowel_lengthening_sequences.size > 0
+        
+        if has_gemination && has_lengthening
+          found_both = true
+          break
+        end
+        
+        # Verify syllable count
+        analysis.syllable_count.should eq(3)
+      end
+      
+      # With 70% and 50% probabilities over 30 attempts, we should find both
+      # This is probabilistic but very likely to succeed
+      found_both.should be_true
+    end
+
+    it "respects gemination probability settings" do
+      # Test with 0% gemination - should never occur
+      generator_no_gem = WordMage::GeneratorBuilder.create
+        .with_phonemes(["t", "n", "k"], ["a", "e"])
+        .with_syllable_patterns(["CV", "CVC"])
+        .with_syllable_count(WordMage::SyllableCountSpec.exact(3))
+        .with_gemination_probability(0.0)  # 0% gemination
+        .build
+      
+      romanizer = WordMage::RomanizationMap.new({"t" => "t", "n" => "n", "k" => "k", "a" => "a", "e" => "e"})
+      
+      # Generate words and verify no gemination
+      10.times do
+        word = generator_no_gem.generate
+        analyzer = WordMage::WordAnalyzer.new(romanizer)
+        analysis = analyzer.analyze(word)
+        analysis.gemination_sequences.size.should eq(0)
+      end
+    end
+
+    it "uses convenience methods for enabling/disabling features" do
+      # Test enable_gemination convenience method
+      generator_enabled = WordMage::GeneratorBuilder.create
+        .with_phonemes(["t", "n", "s"], ["a", "e"])
+        .with_syllable_patterns(["CV", "CVC"])
+        .with_syllable_count(WordMage::SyllableCountSpec.exact(2))
+        .enable_gemination  # Should set 100% probability
+        .disable_vowel_lengthening  # Should set 0% probability
+        .build
+      
+      romanizer = WordMage::RomanizationMap.new({"t" => "t", "n" => "n", "s" => "s", "a" => "a", "e" => "e"})
+      
+      # Should find gemination but no vowel lengthening
+      found_gemination = false
+      found_lengthening = false
+      
+      15.times do
+        word = generator_enabled.generate
+        analyzer = WordMage::WordAnalyzer.new(romanizer)
+        analysis = analyzer.analyze(word)
+        
+        if analysis.gemination_sequences.size > 0
+          found_gemination = true
+        end
+        if analysis.vowel_lengthening_sequences.size > 0
+          found_lengthening = true
+        end
+      end
+      
+      found_gemination.should be_true
+      found_lengthening.should be_false
+    end
+
+    it "integrates phonological features with other constraints" do
+      generator = WordMage::GeneratorBuilder.create
+        .with_phonemes(["t", "h", "r", "n", "s"], ["a", "e", "o"])
+        .with_syllable_patterns(["CV", "CVC", "CCV"])
+        .with_syllable_count(WordMage::SyllableCountSpec.exact(3))
+        .with_thematic_vowel("a")
+        .with_gemination_probability(0.8)
+        .build
+      
+      romanizer = WordMage::RomanizationMap.new({"t" => "t", "h" => "h", "r" => "r", "n" => "n", "s" => "s", "a" => "a", "e" => "e", "o" => "o"})
+      
+      # Generate words and verify all constraints work together
+      10.times do
+        word = generator.generate
+        
+        # Check thematic vowel constraint
+        last_vowel = nil
+        romanizer = WordMage::RomanizationMap.new({"t" => "t", "h" => "h", "r" => "r", "n" => "n", "s" => "s", "a" => "a", "e" => "e", "o" => "o"})
+        phoneme_set = WordMage::PhonemeSet.new(Set{"t", "h", "r", "n", "s"}, Set{"a", "e", "o"})
+        word.chars.reverse.each do |char|
+          if phoneme_set.is_vowel?(char.to_s)
+            last_vowel = char.to_s
+            break
+          end
+        end
+        last_vowel.should eq("a")
+        
+        # Use word analyzer to verify syllable count and detect features
+        analyzer = WordMage::WordAnalyzer.new(romanizer)
+        analysis = analyzer.analyze(word)
+        analysis.syllable_count.should eq(3)
+      end
+    end
+  end
 end

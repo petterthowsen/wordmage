@@ -56,7 +56,7 @@ module WordMage
     property hiatus_sequences : Array(String)
 
     # Phoneme positions (initial, medial, final)
-    property phoneme_positions : Hash(String, Array(Symbol))
+    property phoneme_positions : Hash(Symbol, Array(String))
 
     # Gemination sequences found in the word
     property gemination_sequences : Array(String)
@@ -77,14 +77,14 @@ module WordMage
     # - `syllable_patterns`: Array of syllable patterns
     # - `clusters`: Array of consonant clusters
     # - `hiatus_sequences`: Array of hiatus sequences
-    # - `phoneme_positions`: Hash mapping phonemes to their positions
+    # - `phoneme_positions`: Hash mapping positions to arrays of phonemes
     # - `gemination_sequences`: Array of gemination sequences
     # - `vowel_lengthening_sequences`: Array of vowel lengthening sequences
     def initialize(@syllable_count : Int32, @consonant_count : Int32, @vowel_count : Int32, 
                    @hiatus_count : Int32, @cluster_count : Int32, @complexity_score : Int32,
                    @phonemes : Array(String), @syllable_patterns : Array(String),
                    @clusters : Array(String) = [] of String, @hiatus_sequences : Array(String) = [] of String,
-                   @phoneme_positions : Hash(String, Array(Symbol)) = Hash(String, Array(Symbol)).new,
+                   @phoneme_positions : Hash(Symbol, Array(String)) = Hash(Symbol, Array(String)).new,
                    @gemination_sequences : Array(String) = [] of String, @vowel_lengthening_sequences : Array(String) = [] of String)
     end
 

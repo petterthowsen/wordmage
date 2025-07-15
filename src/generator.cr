@@ -1,3 +1,5 @@
+require "./word_analyzer"
+
 module WordMage
   # Defines the generation mode for word creation.
   #
@@ -175,44 +177,59 @@ module WordMage
     end
 
     private def generate_with_syllable_count_and_starting_type(syllable_count : Int32, starting_type : Symbol?) : String
+      # Adjust syllable count for sequence constraints to account for phonetic integration
+      adjusted_syllable_count = syllable_count
+      if (@word_spec.starts_with && !@word_spec.starts_with.not_nil!.empty?) || (@word_spec.ends_with && !@word_spec.ends_with.not_nil!.empty?)
+        # Reduce syllable count by 1 if we have sequence constraints to account for phonetic integration
+        adjusted_syllable_count = [1, syllable_count - 1].max
+        # puts "DEBUG: Adjusting syllable count from #{syllable_count} to #{adjusted_syllable_count} for sequence constraints"
+      end
+      
       # Use complexity budget if available
       if budget = @complexity_budget
-        generate_with_complexity_budget(syllable_count, starting_type, budget)
+        generate_with_complexity_budget(adjusted_syllable_count, starting_type, budget, syllable_count)
       else
-        generate_without_complexity_budget(syllable_count, starting_type)
+        generate_without_complexity_budget(adjusted_syllable_count, starting_type, syllable_count)
       end
     end
 
     # Generates words with complexity budget tracking
-    private def generate_with_complexity_budget(syllable_count : Int32, starting_type : Symbol?, initial_budget : Int32) : String
+    private def generate_with_complexity_budget(syllable_count : Int32, starting_type : Symbol?, initial_budget : Int32, original_syllable_count : Int32 = syllable_count) : String
       syllables = [] of Array(String)
       used_vowels = Set(String).new
       vowel_sequence = [] of String  # Track vowel sequence for harmony
       remaining_budget = initial_budget.to_f32
       hiatus_count = 0
       
-      # Handle starts_with constraint by generating prefix first
-      prefix_phonemes = @word_spec.get_required_prefix
+      # Handle starts_with and ends_with constraints
+      prefix_phonemes = @word_spec.get_required_prefix(@romanizer)
+      suffix_phonemes = @word_spec.get_required_suffix(@romanizer)
+      
+      # Track prefix vowels and cost
       if !prefix_phonemes.empty?
-        # Add prefix as initial phonemes
-        first_syllable = prefix_phonemes.dup
-        syllables << first_syllable
-        
-        # Track prefix vowels and consonants for harmony
         prefix_phonemes.each do |phoneme|
           if @phoneme_set.is_vowel?(phoneme)
             used_vowels.add(phoneme)
             vowel_sequence << phoneme
           end
         end
-        
-        # Calculate cost of prefix (fixed cost of 1 to account for the constraint)
         remaining_budget = [0.0_f32, remaining_budget - 1.0_f32].max
       end
       
-      start_index = prefix_phonemes.empty? ? 0 : 1  # Skip first syllable if prefix exists
+      # Track suffix vowels and cost
+      if !suffix_phonemes.empty?
+        suffix_phonemes.each do |phoneme|
+          if @phoneme_set.is_vowel?(phoneme)
+            used_vowels.add(phoneme)
+            vowel_sequence << phoneme
+          end
+        end
+        remaining_budget = [0.0_f32, remaining_budget - 1.0_f32].max
+      end
       
-      (start_index...syllable_count).each do |i|
+      # Generate the full number of syllables as requested
+      # Prefixes and suffixes will be attached to first/last syllables
+      (0...syllable_count).each do |i|
         position = case i
                    when 0 then :initial
                    when syllable_count - 1 then :final
@@ -228,6 +245,28 @@ module WordMage
                    end
 
         syllable = generate_syllable_with_budget_and_harmony(template, position, used_vowels, vowel_sequence, remaining_budget.to_i)
+        
+        # Attach prefix to first syllable, but ensure phonological validity
+        if i == 0 && !prefix_phonemes.empty?
+          # Check if prefix ends with consonant and syllable starts with consonant
+          prefix_ends_with_consonant = !@phoneme_set.is_vowel?(prefix_phonemes.last)
+          syllable_starts_with_consonant = !syllable.empty? && !@phoneme_set.is_vowel?(syllable.first)
+          
+          if prefix_ends_with_consonant && syllable_starts_with_consonant
+            # Invalid: consonant cluster would be too long (e.g., "thr" + "t" = "thrt")
+            # Generate a vowel-initial syllable instead
+            template = @word_spec.select_template(position)
+            syllable = generate_vowel_initial_syllable(template, position)
+          end
+          
+          syllable = prefix_phonemes + syllable
+        end
+        
+        # Attach suffix to last syllable
+        if i == syllable_count - 1 && !suffix_phonemes.empty?
+          syllable = syllable + suffix_phonemes
+        end
+        
         syllables << syllable
         
         # Calculate complexity cost with hiatus escalation
@@ -245,7 +284,7 @@ module WordMage
           end
         end
       end
-
+      
       phonemes = syllables.flatten
 
       # Apply gemination if enabled
@@ -259,16 +298,28 @@ module WordMage
       end
 
       # Check word-level constraints, starting type, and phonological issues
-      if @word_spec.validate_word(phonemes) && matches_starting_type_override?(phonemes, starting_type) && !has_syllable_boundary_gemination?(syllables) && !has_excessive_vowel_sequences?(phonemes) && !has_vowel_gemination?(phonemes)
-        @romanizer.romanize(phonemes)
+      romanized_word = @romanizer.romanize(phonemes)
+      
+      # For sequence constraints, validate actual syllable count
+      syllable_count_valid = true
+      if @word_spec.starts_with || @word_spec.ends_with
+        actual_syllable_count = WordAnalyzer.new(@romanizer).analyze(romanized_word).syllable_count
+        syllable_count_valid = actual_syllable_count >= @word_spec.syllable_count.min && actual_syllable_count <= @word_spec.syllable_count.max
       else
-        generate_with_complexity_budget_with_retries(syllable_count, starting_type, initial_budget, 0) # Retry with limit
+        actual_syllable_count = WordAnalyzer.new(@romanizer).analyze(romanized_word).syllable_count
+        syllable_count_valid = actual_syllable_count == original_syllable_count
+      end
+      
+      if @word_spec.validate_word(phonemes, @romanizer) && matches_starting_type_override?(phonemes, starting_type) && !has_syllable_boundary_gemination?(syllables) && !has_excessive_vowel_sequences?(phonemes) && !has_vowel_gemination?(phonemes) && syllable_count_valid
+        romanized_word
+      else
+        generate_with_complexity_budget_with_retries(syllable_count, starting_type, initial_budget, 0, original_syllable_count) # Retry with limit
       end
     end
 
     # Generate with complexity budget and retry limit
-    private def generate_with_complexity_budget_with_retries(syllable_count : Int32, starting_type : Symbol?, initial_budget : Int32, retries : Int32) : String
-      return generate_fallback_word if retries >= 50  # Fallback after too many retries
+    private def generate_with_complexity_budget_with_retries(syllable_count : Int32, starting_type : Symbol?, initial_budget : Int32, retries : Int32, original_syllable_count : Int32 = syllable_count) : String
+      return generate_fallback_word if retries >= 100  # Fallback after too many retries
       
       syllables = [] of Array(String)
       used_vowels = Set(String).new
@@ -276,13 +327,10 @@ module WordMage
       remaining_budget = initial_budget.to_f32
       hiatus_count = 0
       
-      # Handle starts_with constraint by generating prefix first
-      prefix_phonemes = @word_spec.get_required_prefix
+      # Handle starts_with and ends_with constraints by preparing prefix and suffix
+      prefix_phonemes = @word_spec.get_required_prefix(@romanizer)
+      suffix_phonemes = @word_spec.get_required_suffix(@romanizer)
       if !prefix_phonemes.empty?
-        # Add prefix as initial phonemes
-        first_syllable = prefix_phonemes.dup
-        syllables << first_syllable
-        
         # Track prefix vowels and consonants for harmony
         prefix_phonemes.each do |phoneme|
           if @phoneme_set.is_vowel?(phoneme)
@@ -295,9 +343,20 @@ module WordMage
         remaining_budget = [0.0_f32, remaining_budget - 1.0_f32].max
       end
       
-      start_index = prefix_phonemes.empty? ? 0 : 1  # Skip first syllable if prefix exists
+      if !suffix_phonemes.empty?
+        # Track suffix vowels and consonants for harmony
+        suffix_phonemes.each do |phoneme|
+          if @phoneme_set.is_vowel?(phoneme)
+            used_vowels.add(phoneme)
+            vowel_sequence << phoneme
+          end
+        end
+        
+        # Calculate cost of suffix (fixed cost of 1 to account for the constraint)
+        remaining_budget = [0.0_f32, remaining_budget - 1.0_f32].max
+      end
       
-      (start_index...syllable_count).each do |i|
+      (0...syllable_count).each do |i|
         position = case i
                    when 0 then :initial
                    when syllable_count - 1 then :final
@@ -313,6 +372,17 @@ module WordMage
                    end
 
         syllable = generate_syllable_with_budget_and_harmony(template, position, used_vowels, vowel_sequence, remaining_budget.to_i)
+        
+        # For the first syllable, prepend the prefix if it exists
+        if i == 0 && !prefix_phonemes.empty?
+          syllable = prefix_phonemes + syllable
+        end
+        
+        # For the last syllable, append the suffix if it exists
+        if i == syllable_count - 1 && !suffix_phonemes.empty?
+          syllable = syllable + suffix_phonemes
+        end
+        
         syllables << syllable
         
         # Calculate complexity cost with hiatus escalation
@@ -330,7 +400,7 @@ module WordMage
           end
         end
       end
-
+      
       phonemes = syllables.flatten
 
       # Apply gemination if enabled
@@ -344,28 +414,37 @@ module WordMage
       end
 
       # Check word-level constraints, starting type, and phonological issues
-      if @word_spec.validate_word(phonemes) && matches_starting_type_override?(phonemes, starting_type) && !has_syllable_boundary_gemination?(syllables) && !has_excessive_vowel_sequences?(phonemes) && !has_vowel_gemination?(phonemes)
-        @romanizer.romanize(phonemes)
+      # Also verify the actual syllable count matches the target
+      romanized_word = @romanizer.romanize(phonemes)
+      actual_syllable_count = WordAnalyzer.new(@romanizer).analyze(romanized_word).syllable_count
+      
+      # For sequence constraints, validate actual syllable count is within the original range
+      syllable_count_valid = true
+      if @word_spec.starts_with || @word_spec.ends_with
+        syllable_count_valid = actual_syllable_count >= @word_spec.syllable_count.min && actual_syllable_count <= @word_spec.syllable_count.max
       else
-        generate_with_complexity_budget_with_retries(syllable_count, starting_type, initial_budget, retries + 1)
+        # For non-sequence constraints, use original permissive validation
+        syllable_count_valid = true
+      end
+      
+      if @word_spec.validate_word(phonemes, @romanizer) && matches_starting_type_override?(phonemes, starting_type) && !has_syllable_boundary_gemination?(syllables) && !has_excessive_vowel_sequences?(phonemes) && !has_vowel_gemination?(phonemes) && syllable_count_valid
+        romanized_word
+      else
+        generate_with_complexity_budget_with_retries(syllable_count, starting_type, initial_budget, retries + 1, original_syllable_count)
       end
     end
 
     # Original generation without complexity budget
-    private def generate_without_complexity_budget(syllable_count : Int32, starting_type : Symbol?) : String
+    private def generate_without_complexity_budget(syllable_count : Int32, starting_type : Symbol?, original_syllable_count : Int32 = syllable_count) : String
       syllables = [] of Array(String)
 
-      # Handle starts_with constraint by generating prefix first
-      prefix_phonemes = @word_spec.get_required_prefix
-      if !prefix_phonemes.empty?
-        # Add prefix as initial phonemes
-        first_syllable = prefix_phonemes.dup
-        syllables << first_syllable
-      end
+      # Handle starts_with and ends_with constraints
+      prefix_phonemes = @word_spec.get_required_prefix(@romanizer)
+      suffix_phonemes = @word_spec.get_required_suffix(@romanizer)
       
-      start_index = prefix_phonemes.empty? ? 0 : 1  # Skip first syllable if prefix exists
-
-      (start_index...syllable_count).each do |i|
+      # Generate the full number of syllables as requested
+      # Prefixes and suffixes will be attached to first/last syllables
+      (0...syllable_count).each do |i|
         position = case i
                    when 0 then :initial
                    when syllable_count - 1 then :final
@@ -373,37 +452,69 @@ module WordMage
                    end
 
         template = @word_spec.select_template(position)
-        syllables << template.generate(@phoneme_set, position, @romanizer)
+        syllable = template.generate(@phoneme_set, position, @romanizer)
+        
+        # Attach prefix to first syllable, but ensure phonological validity
+        if i == 0 && !prefix_phonemes.empty?
+          # Check if prefix ends with consonant and syllable starts with consonant
+          prefix_ends_with_consonant = !@phoneme_set.is_vowel?(prefix_phonemes.last)
+          syllable_starts_with_consonant = !syllable.empty? && !@phoneme_set.is_vowel?(syllable.first)
+          
+          if prefix_ends_with_consonant && syllable_starts_with_consonant
+            # Invalid: consonant cluster would be too long (e.g., "thr" + "t" = "thrt")
+            # Generate a vowel-initial syllable instead
+            template = @word_spec.select_template(position)
+            syllable = generate_vowel_initial_syllable(template, position)
+          end
+          
+          syllable = prefix_phonemes + syllable
+        end
+        
+        # Attach suffix to last syllable
+        if i == syllable_count - 1 && !suffix_phonemes.empty?
+          syllable = syllable + suffix_phonemes
+        end
+        
+        syllables << syllable
       end
 
       phonemes = syllables.flatten
 
       # Check word-level constraints, starting type, and phonological issues
-      if @word_spec.validate_word(phonemes) && matches_starting_type_override?(phonemes, starting_type) && !has_syllable_boundary_gemination?(syllables) && !has_excessive_vowel_sequences?(phonemes)
-        @romanizer.romanize(phonemes)
+      # Also verify the actual syllable count matches the target
+      romanized_word = @romanizer.romanize(phonemes)
+      actual_syllable_count = WordAnalyzer.new(@romanizer).analyze(romanized_word).syllable_count
+      
+      # For sequence constraints, validate actual syllable count is within the original range
+      syllable_count_valid = true
+      if @word_spec.starts_with || @word_spec.ends_with
+        syllable_count_valid = actual_syllable_count >= @word_spec.syllable_count.min && actual_syllable_count <= @word_spec.syllable_count.max
+      else
+        # For non-sequence constraints, use original permissive validation
+        syllable_count_valid = true
+      end
+      
+      if @word_spec.validate_word(phonemes, @romanizer) && matches_starting_type_override?(phonemes, starting_type) && !has_syllable_boundary_gemination?(syllables) && !has_excessive_vowel_sequences?(phonemes) && syllable_count_valid
+        romanized_word
       else
         # Add retry limit to prevent infinite recursion
-        generate_without_complexity_budget_with_retries(syllable_count, starting_type, 0) 
+        generate_without_complexity_budget_with_retries(syllable_count, starting_type, 0, original_syllable_count) 
       end
     end
 
     # Generate with retry limit to prevent infinite recursion
-    private def generate_without_complexity_budget_with_retries(syllable_count : Int32, starting_type : Symbol?, retries : Int32) : String
-      return generate_fallback_word if retries >= 50  # Fallback after too many retries
+    private def generate_without_complexity_budget_with_retries(syllable_count : Int32, starting_type : Symbol?, retries : Int32, original_syllable_count : Int32 = syllable_count) : String
+      return generate_fallback_word if retries >= 100  # Fallback after too many retries
       
       syllables = [] of Array(String)
 
-      # Handle starts_with constraint by generating prefix first
-      prefix_phonemes = @word_spec.get_required_prefix
-      if !prefix_phonemes.empty?
-        # Add prefix as initial phonemes
-        first_syllable = prefix_phonemes.dup
-        syllables << first_syllable
-      end
+      # Handle starts_with and ends_with constraints
+      prefix_phonemes = @word_spec.get_required_prefix(@romanizer)
+      suffix_phonemes = @word_spec.get_required_suffix(@romanizer)
       
-      start_index = prefix_phonemes.empty? ? 0 : 1  # Skip first syllable if prefix exists
-
-      (start_index...syllable_count).each do |i|
+      # Generate the full number of syllables as requested
+      # Prefixes and suffixes will be attached to first/last syllables
+      (0...syllable_count).each do |i|
         position = case i
                    when 0 then :initial
                    when syllable_count - 1 then :final
@@ -411,7 +522,30 @@ module WordMage
                    end
 
         template = @word_spec.select_template(position)
-        syllables << template.generate(@phoneme_set, position, @romanizer)
+        syllable = template.generate(@phoneme_set, position, @romanizer)
+        
+        # Attach prefix to first syllable, but ensure phonological validity
+        if i == 0 && !prefix_phonemes.empty?
+          # Check if prefix ends with consonant and syllable starts with consonant
+          prefix_ends_with_consonant = !@phoneme_set.is_vowel?(prefix_phonemes.last)
+          syllable_starts_with_consonant = !syllable.empty? && !@phoneme_set.is_vowel?(syllable.first)
+          
+          if prefix_ends_with_consonant && syllable_starts_with_consonant
+            # Invalid: consonant cluster would be too long (e.g., "thr" + "t" = "thrt")
+            # Generate a vowel-initial syllable instead
+            template = @word_spec.select_template(position)
+            syllable = generate_vowel_initial_syllable(template, position)
+          end
+          
+          syllable = prefix_phonemes + syllable
+        end
+        
+        # Attach suffix to last syllable
+        if i == syllable_count - 1 && !suffix_phonemes.empty?
+          syllable = syllable + suffix_phonemes
+        end
+        
+        syllables << syllable
       end
 
       phonemes = syllables.flatten
@@ -427,10 +561,22 @@ module WordMage
       end
 
       # Check word-level constraints, starting type, and phonological issues
-      if @word_spec.validate_word(phonemes) && matches_starting_type_override?(phonemes, starting_type) && !has_syllable_boundary_gemination?(syllables) && !has_excessive_vowel_sequences?(phonemes)
-        @romanizer.romanize(phonemes)
+      romanized_word = @romanizer.romanize(phonemes)
+      actual_syllable_count = WordAnalyzer.new(@romanizer).analyze(romanized_word).syllable_count
+      
+      # For sequence constraints, validate actual syllable count is within the original range
+      syllable_count_valid = true
+      if @word_spec.starts_with || @word_spec.ends_with
+        syllable_count_valid = actual_syllable_count >= @word_spec.syllable_count.min && actual_syllable_count <= @word_spec.syllable_count.max
       else
-        generate_without_complexity_budget_with_retries(syllable_count, starting_type, retries + 1)
+        # For non-sequence constraints, use original permissive validation
+        syllable_count_valid = true
+      end
+      
+      if @word_spec.validate_word(phonemes, @romanizer) && matches_starting_type_override?(phonemes, starting_type) && !has_syllable_boundary_gemination?(syllables) && !has_excessive_vowel_sequences?(phonemes) && syllable_count_valid
+        romanized_word
+      else
+        generate_without_complexity_budget_with_retries(syllable_count, starting_type, retries + 1, original_syllable_count)
       end
     end
 
@@ -478,6 +624,42 @@ module WordMage
       end
       
       result
+    end
+
+    # Counts the number of syllables in a phoneme sequence using the same logic as WordAnalyzer
+    private def count_syllables_in_phonemes(phonemes : Array(String)) : Int32
+      return 0 if phonemes.empty?
+      
+      # Use the same syllable detection logic as WordAnalyzer to ensure consistency
+      analyzer = WordAnalyzer.new(@romanizer)
+      syllables = analyzer.detect_syllables(phonemes)
+      syllables.size
+    end
+    
+    # Generates a vowel-initial syllable to avoid consonant cluster problems
+    private def generate_vowel_initial_syllable(template : SyllableTemplate, position : Symbol) : Array(String)
+      # Force the syllable to start with a vowel
+      vowel = @phoneme_set.sample_phoneme(:vowel, position)
+      
+      # Generate the rest of the syllable pattern after the vowel
+      remaining_pattern = template.pattern.sub(/^C*/, "")  # Remove leading consonants
+      syllable = [vowel]
+      
+      remaining_pattern.each_char do |symbol|
+        case symbol
+        when 'C'
+          syllable << @phoneme_set.sample_phoneme(:consonant, position)
+        when 'V'
+          syllable << @phoneme_set.sample_phoneme(:vowel, position)
+        else
+          # Handle custom symbols
+          if @phoneme_set.has_custom_group?(symbol)
+            syllable << @phoneme_set.sample_phoneme(symbol, position)
+          end
+        end
+      end
+      
+      syllable
     end
 
     # Applies vowel lengthening (vowel doubling) to phonemes based on probability.

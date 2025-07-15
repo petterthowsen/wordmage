@@ -169,26 +169,27 @@ module WordMage
     #
     # ## Parameters
     # - `phonemes`: Array of phonemes forming the word
+    # - `romanizer`: Optional romanizer for thematic vowel validation and sequence constraints
     #
     # ## Returns
     # `true` if word passes all constraints, `false` otherwise
-    def validate_word(phonemes : Array(String)) : Bool
+    def validate_word(phonemes : Array(String), romanizer : RomanizationMap? = nil) : Bool
       sequence = phonemes.join
       return false unless @word_constraints.none? { |pattern| sequence.matches?(Regex.new(pattern)) }
       
       # Check thematic vowel constraint
       if thematic = @thematic_vowel
-        return false unless validate_thematic_vowel(phonemes, thematic)
+        return false unless validate_thematic_vowel(phonemes, thematic, romanizer)
       end
       
       # Check starts_with constraint
       if prefix = @starts_with
-        return false unless validate_starts_with(phonemes, prefix)
+        return false unless romanizer && validate_starts_with(phonemes, prefix, romanizer)
       end
       
       # Check ends_with constraint
       if suffix = @ends_with
-        return false unless validate_ends_with(phonemes, suffix)
+        return false unless romanizer && validate_ends_with(phonemes, suffix, romanizer)
       end
       
       true
@@ -198,18 +199,23 @@ module WordMage
     #
     # ## Parameters
     # - `phonemes`: Array of phonemes forming the word
-    # - `thematic_vowel`: The required last vowel
+    # - `thematic_vowel`: The required last vowel (in romanized form)
+    # - `romanizer`: Romanizer to convert phonemes to text
     #
     # ## Returns
     # `true` if the last vowel matches the thematic vowel, `false` otherwise
-    private def validate_thematic_vowel(phonemes : Array(String), thematic_vowel : String) : Bool
-      # Find the last vowel in the word
-      vowels = %w[i u y ɑ ɔ ɛ a e o]  # Standard vowel set
+    private def validate_thematic_vowel(phonemes : Array(String), thematic_vowel : String, romanizer : RomanizationMap?) : Bool
+      return false unless romanizer
       
-      # Search backwards for the last vowel
-      phonemes.reverse_each do |phoneme|
-        if vowels.includes?(phoneme)
-          return phoneme == thematic_vowel
+      # Convert to romanized text
+      romanized_word = romanizer.romanize(phonemes)
+      
+      # Search backwards for the last vowel in romanized text
+      # Use simple character-by-character approach since thematic vowel should be single character
+      romanized_word.chars.reverse.each do |char|
+        char_str = char.to_s
+        if IPA::Utils.is_vowel?(char_str)
+          return char_str == thematic_vowel
         end
       end
       
@@ -222,13 +228,13 @@ module WordMage
     # ## Parameters
     # - `phonemes`: Array of phonemes forming the word
     # - `prefix`: The required starting sequence (romanized)
+    # - `romanizer`: RomanizationMap to convert romanization to phonemes
     #
     # ## Returns
     # `true` if the word starts with the required sequence, `false` otherwise
-    private def validate_starts_with(phonemes : Array(String), prefix : String) : Bool
-      # Convert romanized prefix to phonemes (this is a simple approach)
-      # In a more sophisticated system, you'd use the RomanizationMap
-      prefix_phonemes = prefix.chars.map(&.to_s)
+    private def validate_starts_with(phonemes : Array(String), prefix : String, romanizer : RomanizationMap) : Bool
+      # Convert romanized prefix to phonemes using the same logic as get_required_prefix
+      prefix_phonemes = convert_romanization_to_phonemes(prefix, romanizer)
       
       # Check if word starts with the required sequence
       return false if phonemes.size < prefix_phonemes.size
@@ -242,11 +248,15 @@ module WordMage
 
     # Gets the required starting phonemes for the starts_with constraint.
     #
+    # ## Parameters
+    # - `romanizer`: RomanizationMap to convert romanization to phonemes
+    #
     # ## Returns
     # Array of phonemes that must start the word, or empty array if no constraint
-    def get_required_prefix : Array(String)
+    def get_required_prefix(romanizer : RomanizationMap) : Array(String)
       if prefix = @starts_with
-        prefix.chars.map(&.to_s)
+        # Use the same logic as WordAnalyzer to convert romanization to phonemes
+        convert_romanization_to_phonemes(prefix, romanizer)
       else
         [] of String
       end
@@ -257,12 +267,13 @@ module WordMage
     # ## Parameters
     # - `phonemes`: Array of phonemes forming the word
     # - `suffix`: The required ending sequence (romanized)
+    # - `romanizer`: RomanizationMap to convert romanization to phonemes
     #
     # ## Returns
     # `true` if the word ends with the required sequence, `false` otherwise
-    private def validate_ends_with(phonemes : Array(String), suffix : String) : Bool
-      # Convert romanized suffix to phonemes
-      suffix_phonemes = suffix.chars.map(&.to_s)
+    private def validate_ends_with(phonemes : Array(String), suffix : String, romanizer : RomanizationMap) : Bool
+      # Convert romanized suffix to phonemes using the same logic as get_required_suffix
+      suffix_phonemes = convert_romanization_to_phonemes(suffix, romanizer)
       
       # Check if word ends with the required sequence
       return false if phonemes.size < suffix_phonemes.size
@@ -280,12 +291,60 @@ module WordMage
     #
     # ## Returns
     # Array of phonemes that must end the word, or empty array if no constraint
-    def get_required_suffix : Array(String)
+    def get_required_suffix(romanizer : RomanizationMap) : Array(String)
       if suffix = @ends_with
-        suffix.chars.map(&.to_s)
+        # Use the same logic as WordAnalyzer to convert romanization to phonemes
+        convert_romanization_to_phonemes(suffix, romanizer)
       else
         [] of String
       end
+    end
+    
+    # Converts romanized text to phonemes using the romanization map.
+    # This uses the same algorithm as WordAnalyzer.
+    #
+    # ## Parameters
+    # - `text`: Romanized text to convert
+    # - `romanizer`: RomanizationMap to use for conversion
+    #
+    # ## Returns
+    # Array of phonemes
+    private def convert_romanization_to_phonemes(text : String, romanizer : RomanizationMap) : Array(String)
+      # Create reverse mapping
+      reverse_romanization = Hash(String, String).new
+      romanizer.mappings.each do |phoneme, romanization|
+        reverse_romanization[romanization] = phoneme
+      end
+      
+      phonemes = [] of String
+      i = 0
+      
+      while i < text.size
+        # Try longest matches first
+        found_match = false
+        
+        # Look for multi-character romanizations (e.g., "th" -> "θ")
+        (2..4).reverse_each do |length|
+          next if i + length > text.size
+          
+          substring = text[i, length]
+          if phoneme = reverse_romanization[substring]?
+            phonemes << phoneme
+            i += length
+            found_match = true
+            break
+          end
+        end
+        
+        # If no multi-character match, try single character
+        unless found_match
+          char = text[i].to_s
+          phonemes << (reverse_romanization[char]? || char)
+          i += 1
+        end
+      end
+      
+      phonemes
     end
   end
 end

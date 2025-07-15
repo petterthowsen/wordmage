@@ -155,8 +155,8 @@ module WordMage
       positional_totals = Hash(String, Int32).new(0)
       
       word_analyses.each do |analysis|
-        analysis.phoneme_positions.each do |phoneme, positions|
-          positions.each do |position|
+        analysis.phoneme_positions.each do |position, phonemes|
+          phonemes.each do |phoneme|
             positional_counts[phoneme][position] += 1
             positional_totals[phoneme] += 1
           end
