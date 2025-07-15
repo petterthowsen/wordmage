@@ -161,7 +161,7 @@ analyzed_generator = WordMage::GeneratorBuilder.create
   .with_complexity_budget(6)
   .with_gemination_probability(0.1_f32)
   .with_vowel_lengthening_probability(0.1_f32)
-  .with_cluster_cost(5.0)           # Make clusters more expensive
+  .with_cluster_cost(4.0)           # Make clusters more expensive
   .with_hiatus_cost(2.0)            # Make hiatus cheaper
   .with_gemination_cost(2.0)        # Make gemination cheaper
   .with_complex_coda_cost(4.0)      # Make complex codas more expensive

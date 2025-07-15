@@ -331,7 +331,7 @@ module WordMage
 
         # Select template and generate syllable with budget constraints
         template = if remaining_budget > 0
-                     @word_spec.select_template(position)
+                     @word_spec.select_template(position, @cluster_cost, @complex_coda_cost)
                    else
                      # Budget exhausted - use simple CV pattern only
                      select_simple_template(position)
@@ -466,7 +466,7 @@ module WordMage
 
         # Select template and generate syllable with budget constraints
         template = if remaining_budget > 0
-                     @word_spec.select_template(position)
+                     @word_spec.select_template(position, @cluster_cost, @complex_coda_cost)
                    else
                      # Budget exhausted - use simple CV pattern only
                      select_simple_template(position)
@@ -560,7 +560,8 @@ module WordMage
                    else :medial
                    end
 
-        template = @word_spec.select_template(position)
+        # Select syllable template with position and cost awareness
+        template = @word_spec.select_template(position, @cluster_cost, @complex_coda_cost)
         syllable = template.generate(@phoneme_set, position, @romanizer)
         
         # Attach prefix to first syllable, but ensure phonological validity
@@ -572,7 +573,7 @@ module WordMage
           if prefix_ends_with_consonant && syllable_starts_with_consonant
             # Invalid: consonant cluster would be too long (e.g., "thr" + "t" = "thrt")
             # Generate a vowel-initial syllable instead
-            template = @word_spec.select_template(position)
+            template = @word_spec.select_template(position, @cluster_cost, @complex_coda_cost)
             syllable = generate_vowel_initial_syllable(template, position)
           end
           
@@ -630,7 +631,8 @@ module WordMage
                    else :medial
                    end
 
-        template = @word_spec.select_template(position)
+        # Select syllable template with position and cost awareness
+        template = @word_spec.select_template(position, @cluster_cost, @complex_coda_cost)
         syllable = template.generate(@phoneme_set, position, @romanizer)
         
         # Attach prefix to first syllable, but ensure phonological validity

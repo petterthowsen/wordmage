@@ -100,6 +100,10 @@ module WordMage
     property thematic_vowel : String?
     property starts_with : String?
     property ends_with : String?
+    
+    # Cost settings for template selection
+    property template_cluster_cost_factor : Float32 = 1.0_f32
+    property template_coda_cost_factor : Float32 = 1.0_f32
 
     # Creates a new WordSpec.
     #
@@ -111,7 +115,9 @@ module WordMage
     # - `thematic_vowel`: Optional constraint forcing the last vowel to be this specific vowel
     # - `starts_with`: Optional constraint forcing words to start with this exact sequence
     # - `ends_with`: Optional constraint forcing words to end with this exact sequence
-    def initialize(@syllable_count : SyllableCountSpec, @syllable_templates : Array(SyllableTemplate), @starting_type : Symbol? = nil, @word_constraints : Array(String) = [] of String, @thematic_vowel : String? = nil, @starts_with : String? = nil, @ends_with : String? = nil)
+    # - `template_cluster_cost_factor`: Cost factor for templates with consonant clusters (default: 1.0)
+    # - `template_coda_cost_factor`: Cost factor for templates with complex codas (default: 1.0)
+    def initialize(@syllable_count : SyllableCountSpec, @syllable_templates : Array(SyllableTemplate), @starting_type : Symbol? = nil, @word_constraints : Array(String) = [] of String, @thematic_vowel : String? = nil, @starts_with : String? = nil, @ends_with : String? = nil, @template_cluster_cost_factor : Float32 = 1.0_f32, @template_coda_cost_factor : Float32 = 1.0_f32)
     end
 
     # Generates the number of syllables for a word.
@@ -126,13 +132,22 @@ module WordMage
     #
     # ## Parameters
     # - `position`: Syllable position (`:initial`, `:medial`, `:final`)
+    # - `cluster_cost`: Optional cost for consonant clusters (default: 0)
+    # - `coda_cost`: Optional cost for complex codas (default: 0)
     #
     # ## Returns
-    # A syllable template, respecting both probability and position weights
-    def select_template(position : Symbol) : SyllableTemplate
+    # A syllable template, respecting probability, position weights, and costs
+    def select_template(position : Symbol, cluster_cost : Float32 = 0.0_f32, coda_cost : Float32 = 0.0_f32) : SyllableTemplate
       # Filter templates that have position weights for this position
       position_weighted_templates = @syllable_templates.select { |t| t.position_weights.has_key?(position) }
-
+      templates_to_use = position_weighted_templates.empty? ? @syllable_templates : position_weighted_templates
+      
+      # Apply cost-aware selection if costs are provided
+      if cluster_cost > 0.0 || coda_cost > 0.0
+        return cost_aware_template_selection(templates_to_use, position, cluster_cost, coda_cost)
+      end
+      
+      # Otherwise use the original selection method
       if position_weighted_templates.empty?
         # No position weights - use template probability only
         weighted_sample_by_probability(@syllable_templates)
@@ -149,6 +164,54 @@ module WordMage
 
         position_weighted_templates.first
       end
+    end
+    
+    # Selects a syllable template taking into account cluster and coda costs
+    #
+    # ## Parameters
+    # - `templates`: Array of templates to choose from
+    # - `position`: Syllable position (`:initial`, `:medial`, `:final`)
+    # - `cluster_cost`: Cost for consonant clusters
+    # - `coda_cost`: Cost for complex codas
+    #
+    # ## Returns
+    # A template selected with cost-aware weighting
+    private def cost_aware_template_selection(templates : Array(SyllableTemplate), position : Symbol, cluster_cost : Float32, coda_cost : Float32) : SyllableTemplate
+      # Calculate adjusted weights based on costs
+      adjusted_weights = templates.map do |template|
+        base_weight = position ? (template.probability * (template.position_weights[position]? || 1.0_f32)) : template.probability
+        
+        # Apply cluster costs if template allows clusters or contains CC in pattern
+        cluster_penalty = 1.0_f32
+        if template.allowed_clusters || template.pattern.includes?("CC")
+          # The higher the cost, the lower the resulting weight
+          cluster_penalty = Math.max(0.001_f32, 1.0_f32 / (1.0_f32 + cluster_cost * @template_cluster_cost_factor))
+        end
+        
+        # Apply coda costs if template has complex codas
+        coda_penalty = 1.0_f32
+        if template.allowed_coda_clusters || template.pattern.ends_with?("CC")
+          coda_penalty = Math.max(0.001_f32, 1.0_f32 / (1.0_f32 + coda_cost * @template_coda_cost_factor))
+        end
+        
+        # Final weight is product of base weight and penalties
+        {template, base_weight * cluster_penalty * coda_penalty}
+      end
+      
+      # Weighted random selection using adjusted weights
+      total_weight = adjusted_weights.sum { |_, weight| weight }
+      return templates.sample if total_weight <= 0.0_f32 # Fallback if all weights are 0
+      
+      target = Random.rand * total_weight
+      current_weight = 0.0_f32
+      
+      adjusted_weights.each do |template, weight|
+        current_weight += weight
+        return template if current_weight >= target
+      end
+      
+      # Fallback
+      templates.first
     end
 
     # Selects a template using weighted sampling based on probability only
