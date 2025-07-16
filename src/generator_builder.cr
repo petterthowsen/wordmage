@@ -381,7 +381,7 @@ module WordMage
       # Apply phoneme transitions for contextual generation
       if !analysis.phoneme_transitions.empty?
         @phoneme_transitions = analysis.phoneme_transitions
-        @transition_weight_factor = analysis_weight_factor * 0.1_f32  # Scale down for transitions
+        @transition_weight_factor = analysis_weight_factor * 1.0_f32  # Scale down for transitions
       end
       
       # Apply positional frequencies for word-initial selection

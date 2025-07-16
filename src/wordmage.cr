@@ -12,5 +12,5 @@ require "./vowel_harmony"
 require "./IPA/ipa"
 
 module WordMage
-  VERSION = "0.7.4"
+  VERSION = "0.7.5"
 end
