@@ -166,7 +166,7 @@ analyzed_generator = WordMage::GeneratorBuilder.create
   })
   .with_romanization(romanization)
   .with_syllable_templates(explicit_templates)  # Use the explicit templates with cluster constraints
-  .with_analysis(explicit_analysis, analysis_weight_factor: 1000.0_f32)
+  .with_analysis(explicit_analysis, analysis_weight_factor: 100.0_f32)
   .with_hiatus_escalation(10.0_f32)
   .with_vowel_harmony_strength(1.0_f32)
   .with_gemination_probability(0.1_f32)
