@@ -286,12 +286,15 @@ module WordMage
       end
     end
 
-    # Generates words with complexity budget tracking
+    # Generates words with strict budget logic
     private def generate_with_complexity_budget(syllable_count : Int32, starting_type : Symbol?, initial_budget : Int32, original_syllable_count : Int32 = syllable_count) : String
+      # Initialize total budget as syllable count + complexity budget
+      total_budget = syllable_count + initial_budget
+      remaining_budget = total_budget.to_f32
+      
       syllables = [] of Array(String)
       used_vowels = Set(String).new
       vowel_sequence = [] of String  # Track vowel sequence for harmony
-      remaining_budget = initial_budget.to_f32
       hiatus_count = 0
       
       # Handle starts_with and ends_with constraints
@@ -306,6 +309,7 @@ module WordMage
             vowel_sequence << phoneme
           end
         end
+        # Cost for prefix
         remaining_budget = [0.0_f32, remaining_budget - 1.0_f32].max
       end
       
@@ -317,6 +321,7 @@ module WordMage
             vowel_sequence << phoneme
           end
         end
+        # Cost for suffix
         remaining_budget = [0.0_f32, remaining_budget - 1.0_f32].max
       end
       
@@ -329,13 +334,8 @@ module WordMage
                    else :medial
                    end
 
-        # Select template and generate syllable with budget constraints
-        template = if remaining_budget > 0
-                     @word_spec.select_template(position, @cluster_cost, @complex_coda_cost)
-                   else
-                     # Budget exhausted - use simple CV pattern only
-                     select_simple_template(position)
-                   end
+        # Select template with strict budget constraints
+        template = select_template_with_strict_budget(position, remaining_budget)
 
         # Use original template generation with context-aware PhonemeSet
         syllable = if !syllables.empty? && !@phoneme_transitions.empty?
@@ -371,7 +371,7 @@ module WordMage
         syllables << syllable
         
         # Calculate complexity cost with hiatus escalation
-        cost = calculate_complexity_cost_with_escalation(syllable, template, hiatus_count)
+        cost = calculate_syllable_cost(syllable)
         remaining_budget = [0.0_f32, remaining_budget - cost].max
         
         # Track hiatus sequences for escalation
@@ -464,13 +464,8 @@ module WordMage
                    else :medial
                    end
 
-        # Select template and generate syllable with budget constraints
-        template = if remaining_budget > 0
-                     @word_spec.select_template(position, @cluster_cost, @complex_coda_cost)
-                   else
-                     # Budget exhausted - use simple CV pattern only
-                     select_simple_template(position)
-                   end
+        # Select template with strict budget constraints
+        template = select_template_with_strict_budget(position, remaining_budget)
 
         # Use original template generation with context-aware PhonemeSet
         syllable = if !syllables.empty? && !@phoneme_transitions.empty?
@@ -495,7 +490,7 @@ module WordMage
         syllables << syllable
         
         # Calculate complexity cost with hiatus escalation
-        cost = calculate_complexity_cost_with_escalation(syllable, template, hiatus_count)
+        cost = calculate_syllable_cost(syllable)
         remaining_budget = [0.0_f32, remaining_budget - cost].max
         
         # Track hiatus sequences for escalation
@@ -561,7 +556,7 @@ module WordMage
                    end
 
         # Select syllable template with position and cost awareness
-        template = @word_spec.select_template(position, @cluster_cost, @complex_coda_cost)
+        template = @word_spec.select_template(position)
         syllable = template.generate(@phoneme_set, position, @romanizer)
         
         # Attach prefix to first syllable, but ensure phonological validity
@@ -573,7 +568,7 @@ module WordMage
           if prefix_ends_with_consonant && syllable_starts_with_consonant
             # Invalid: consonant cluster would be too long (e.g., "thr" + "t" = "thrt")
             # Generate a vowel-initial syllable instead
-            template = @word_spec.select_template(position, @cluster_cost, @complex_coda_cost)
+            template = @word_spec.select_template(position)
             syllable = generate_vowel_initial_syllable(template, position)
           end
           
@@ -632,7 +627,7 @@ module WordMage
                    end
 
         # Select syllable template with position and cost awareness
-        template = @word_spec.select_template(position, @cluster_cost, @complex_coda_cost)
+        template = @word_spec.select_template(position)
         syllable = template.generate(@phoneme_set, position, @romanizer)
         
         # Attach prefix to first syllable, but ensure phonological validity
@@ -1201,34 +1196,72 @@ module WordMage
       cost.to_i
     end
 
-    # Calculates complexity cost with hiatus escalation factor
-    private def calculate_complexity_cost_with_escalation(syllable : Array(String), template : SyllableTemplate, previous_hiatus_count : Int32) : Float32
+    # Selects a template based on strict budget constraints
+    private def select_template_with_strict_budget(position : Symbol, remaining_budget : Float32) : SyllableTemplate
+      # Get all applicable templates for this position
+      position_weighted_templates = @word_spec.syllable_templates.select { |t| t.position_weights.has_key?(position) }
+      templates_to_use = position_weighted_templates.empty? ? @word_spec.syllable_templates : position_weighted_templates
+      
+      # Filter templates by what we can afford with our budget
+      affordable_templates = templates_to_use.select do |template|
+        # Calculate template cost
+        template_cost = calculate_template_cost(template)
+        template_cost <= remaining_budget
+      end
+      
+      # If no templates are affordable, use the simplest template (CV)
+      if affordable_templates.empty?
+        return select_simple_template(position)
+      end
+      
+      # Select from affordable templates using their regular probability weights
+      total_weight = affordable_templates.sum(&.probability)
+      target = Random.rand * total_weight
+      current_weight = 0.0_f32
+      
+      affordable_templates.each do |template|
+        current_weight += template.probability
+        return template if current_weight >= target
+      end
+      
+      # Fallback to the first affordable template
+      affordable_templates.first
+    end
+    
+    # Calculate the cost of a template based on its features
+    private def calculate_template_cost(template : SyllableTemplate) : Float32
       cost = 0.0_f32
       
-      # Count clusters (adjacent consonants) - normal cost
+      # Cost for consonant clusters
+      if template.allowed_clusters || template.pattern.includes?("CC")
+        cost += @cluster_cost
+      end
+      
+      # Cost for complex codas
+      if template.allowed_coda_clusters || template.pattern.ends_with?("CC")
+        cost += @complex_coda_cost
+      end
+      
+      # Base cost for any template (each template costs at least 1.0)
+      cost += 1.0_f32
+      
+      cost
+    end
+    
+    # Calculate the actual cost of a generated syllable
+    private def calculate_syllable_cost(syllable : Array(String)) : Float32
+      cost = 0.0_f32
+      
+      # Count clusters (adjacent consonants)
       consonant_clusters = count_consonant_clusters(syllable)
       cost += consonant_clusters * @cluster_cost
       
-      # Gemination cost - estimate based on probability
-      if @gemination_probability > 0.0
-        consonant_count = syllable.count { |p| !@phoneme_set.is_vowel?(p) }
-        expected_geminations = consonant_count * @gemination_probability
-        cost += expected_geminations * @gemination_cost
-      end
-      
-      # Count hiatus (adjacent vowels) - escalating cost
+      # Count hiatus (adjacent vowels)
       vowel_sequences = count_vowel_sequences(syllable)
-      if vowel_sequences > 0
-        # Each hiatus costs more based on how many we've already used
-        # 1st hiatus: base cost, 2nd: base * escalation, 3rd: base * escalation^2, etc.
-        escalation_multiplier = @hiatus_escalation_factor ** previous_hiatus_count
-        cost += vowel_sequences * @hiatus_cost * escalation_multiplier
-      end
+      cost += vowel_sequences * @hiatus_cost
       
-      # Complex codas (CC at end)
-      if template.pattern.ends_with?("CC")
-        cost += @complex_coda_cost
-      end
+      # Base cost for any syllable (each syllable costs at least 1.0)
+      cost += 1.0_f32
       
       cost
     end

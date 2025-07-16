@@ -155,17 +155,20 @@ analyzed_generator = WordMage::GeneratorBuilder.create
                  ["i", "u", "y", "ɑ", "ɔ", "ɛ"])
   .with_romanization(romanization)
   .with_syllable_templates(explicit_templates)  # Use the explicit templates with cluster constraints
-  .with_analysis(explicit_analysis, analysis_weight_factor: 100.0_f32)
+  .with_analysis(explicit_analysis, analysis_weight_factor: 1000.0_f32)
   .with_hiatus_escalation(10.0_f32)
   .with_vowel_harmony_strength(1.0_f32)
-  .with_complexity_budget(6)
   .with_gemination_probability(0.1_f32)
   .with_vowel_lengthening_probability(0.1_f32)
-  .with_cluster_cost(4.0)           # Make clusters more expensive
-  .with_hiatus_cost(2.0)            # Make hiatus cheaper
-  .with_gemination_cost(2.0)        # Make gemination cheaper
-  .with_complex_coda_cost(4.0)      # Make complex codas more expensive
-  .with_vowel_lengthening_cost(3.0) # Make vowel lengthening very cheap
+
+  .with_complexity_budget(0)
+
+  .with_cluster_cost(4)           # Make clusters more expensive
+  .with_hiatus_cost(2)            # Make hiatus cheaper
+  .with_gemination_cost(2)        # Make gemination cheaper
+  .with_complex_coda_cost(4)      # Make complex codas more expensive
+  .with_vowel_lengthening_cost(3) # Make vowel lengthening very cheap
+
   .random_mode
   .build
 
