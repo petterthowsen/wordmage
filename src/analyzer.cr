@@ -17,12 +17,22 @@ module WordMage
   # })
   # analyzer = Analyzer.new(romanization)
   # words = ["nazagon", "thadrae", "drayeki", "ora", "varanaya"]
+  # 
+  # # Basic analysis
   # analysis = analyzer.analyze(words)
-  # puts analysis.average_complexity  # 6.2
-  # puts analysis.recommended_budget  # 6
+  # 
+  # # Analysis with Gusein-Zade smoothing
+  # analysis = analyzer.analyze(words, use_gusein_zade_smoothing: true, smoothing_factor: 0.3)
+  # 
+  # # Analysis with templates
+  # analysis = analyzer.with_templates(templates).analyze(words)
+  # 
+  # # Analysis with both templates and Gusein-Zade smoothing
+  # analysis = analyzer.with_templates(templates).analyze(words, true, 0.3)
   # ```
   class Analyzer
     @word_analyzer : WordAnalyzer
+    @syllable_templates : Array(SyllableTemplate)?
 
     # Creates a new Analyzer.
     #
@@ -30,30 +40,72 @@ module WordMage
     # - `romanization_map`: RomanizationMap for converting romanized text to phonemes
     def initialize(@romanization_map : RomanizationMap)
       @word_analyzer = WordAnalyzer.new(@romanization_map)
+      @syllable_templates = nil
+    end
+
+    # Configures the analyzer to use specific syllable templates.
+    #
+    # This method allows users to provide their own SyllableTemplate objects
+    # with defined onset and coda clusters. The analysis will respect these
+    # templates while still detecting all other phonological patterns.
+    #
+    # ## Parameters
+    # - `templates`: Array of SyllableTemplate objects to use for analysis
+    #
+    # ## Returns
+    # Self (for method chaining)
+    #
+    # ## Example
+    # ```crystal
+    # templates = [
+    #   SyllableTemplate.new("CV", allowed_clusters: ["br", "tr"]),
+    #   SyllableTemplate.new("CVC", allowed_coda_clusters: ["st", "nt"])
+    # ]
+    # analysis = analyzer.with_templates(templates).analyze(words)
+    # ```
+    def with_templates(templates : Array(SyllableTemplate)) : self
+      @syllable_templates = templates
+      self
     end
 
     # Analyzes a set of words to extract aggregate patterns.
     #
     # ## Parameters
     # - `words`: Array of romanized words to analyze
+    # - `use_gusein_zade_smoothing`: Whether to apply Gusein-Zade smoothing (default: false)
+    # - `smoothing_factor`: Weight of Gusein-Zade vs empirical (0.0-1.0, default: 0.3)
     #
     # ## Returns
     # Analysis containing aggregate statistics and recommendations
     #
     # ## Example
     # ```crystal
+    # # Basic analysis
     # analysis = analyzer.analyze(["nazagon", "thadrae", "drayeki"])
-    # puts analysis.phoneme_frequencies["a"]  # 0.25
-    # puts analysis.recommended_templates     # ["CV", "CVC", "CCV"]
+    # 
+    # # Analysis with Gusein-Zade smoothing
+    # analysis = analyzer.analyze(words, true, 0.4)
+    # 
+    # # Analysis with templates
+    # analysis = analyzer.with_templates(templates).analyze(words)
+    # 
+    # # Analysis with both templates and Gusein-Zade smoothing
+    # analysis = analyzer.with_templates(templates).analyze(words, true, 0.3)
     # ```
-    def analyze(words : Array(String)) : Analysis
-      return Analysis.new if words.empty?
+    def analyze(words : Array(String), use_gusein_zade_smoothing : Bool = false, smoothing_factor : Float32 = 0.3_f32) : Analysis
+      return Analysis.new(provided_templates: @syllable_templates) if words.empty?
       
-      # Analyze each word individually
-      word_analyses = words.map { |word| @word_analyzer.analyze(word) }
+      # Analyze each word individually (with templates if provided)
+      word_analyses = if templates = @syllable_templates
+        words.map { |word| @word_analyzer.analyze(word, templates) }
+      else
+        words.map { |word| @word_analyzer.analyze(word) }
+      end
       
-      # Aggregate phoneme frequencies
-      phoneme_frequencies = calculate_phoneme_frequencies(word_analyses)
+      # Aggregate phoneme frequencies (with optional Gusein-Zade smoothing)
+      phoneme_frequencies = use_gusein_zade_smoothing ? 
+        calculate_gusein_zade_smoothed_frequencies(word_analyses, smoothing_factor) :
+        calculate_phoneme_frequencies(word_analyses)
       
       # Aggregate positional frequencies
       positional_frequencies = calculate_positional_frequencies(word_analyses)
@@ -100,8 +152,16 @@ module WordMage
       
       # Generate recommendations
       recommended_budget = calculate_recommended_budget(average_complexity)
-      recommended_templates = calculate_recommended_templates(syllable_pattern_distribution)
-      recommended_hiatus_probability = calculate_recommended_hiatus_probability(hiatus_patterns, word_analyses)
+      
+      # Handle templates vs patterns
+      if templates = @syllable_templates
+        recommended_templates = templates.map(&.pattern)
+        recommended_hiatus_probability = calculate_hiatus_probability_from_templates(templates)
+      else
+        recommended_templates = calculate_recommended_templates(syllable_pattern_distribution)
+        recommended_hiatus_probability = calculate_recommended_hiatus_probability(hiatus_patterns, word_analyses)
+      end
+      
       recommended_gemination_probability = calculate_recommended_gemination_probability(gemination_patterns, word_analyses)
       dominant_patterns = calculate_dominant_patterns(syllable_pattern_distribution)
       
@@ -126,121 +186,11 @@ module WordMage
         vowel_lengthening_patterns: vowel_lengthening_patterns,
         phoneme_transitions: phoneme_transitions,
         bigram_frequencies: bigram_frequencies,
-        trigram_frequencies: trigram_frequencies
+        trigram_frequencies: trigram_frequencies,
+        provided_templates: @syllable_templates
       )
     end
 
-    # Analyzes a set of words using explicit SyllableTemplate objects.
-    #
-    # This method allows users to provide their own SyllableTemplate objects
-    # with defined onset and coda clusters. The analysis will respect these
-    # templates while still detecting all other phonological patterns.
-    #
-    # ## Parameters
-    # - `words`: Array of romanized words to analyze
-    # - `syllable_templates`: Array of user-defined SyllableTemplate objects
-    #
-    # ## Returns
-    # Analysis containing aggregate statistics with provided templates
-    #
-    # ## Example
-    # ```crystal
-    # templates = [
-    #   SyllableTemplate.new("CV", allowed_clusters: ["br", "tr"]),
-    #   SyllableTemplate.new("CVC", allowed_coda_clusters: ["st", "nt"])
-    # ]
-    # analysis = analyzer.analyze(["nazagon", "thadrae"], templates)
-    # puts analysis.provided_templates.size  # 2
-    # ```
-    def analyze(words : Array(String), syllable_templates : Array(SyllableTemplate)) : Analysis
-      return Analysis.new(provided_templates: syllable_templates) if words.empty?
-      
-      # Analyze each word individually using the provided templates
-      word_analyses = words.map { |word| @word_analyzer.analyze(word, syllable_templates) }
-      
-      # Aggregate phoneme frequencies
-      phoneme_frequencies = calculate_phoneme_frequencies(word_analyses)
-      
-      # Aggregate positional frequencies
-      positional_frequencies = calculate_positional_frequencies(word_analyses)
-      
-      # Aggregate syllable count distribution
-      syllable_count_distribution = calculate_syllable_count_distribution(word_analyses)
-      
-      # Aggregate syllable pattern distribution (still analyze detected patterns)
-      syllable_pattern_distribution = calculate_syllable_pattern_distribution(word_analyses)
-      
-      # Aggregate cluster patterns
-      cluster_patterns = calculate_cluster_patterns(word_analyses)
-      
-      # Aggregate hiatus patterns
-      hiatus_patterns = calculate_hiatus_patterns(word_analyses)
-      
-      # Aggregate vowel transitions
-      vowel_transitions = calculate_vowel_transitions(word_analyses)
-      
-      # Aggregate gemination patterns
-      gemination_patterns = calculate_gemination_patterns(word_analyses)
-      
-      # Aggregate vowel lengthening patterns
-      vowel_lengthening_patterns = calculate_vowel_lengthening_patterns(word_analyses)
-      
-      # Aggregate phoneme transitions
-      phoneme_transitions = calculate_phoneme_transitions(word_analyses)
-      
-      # Aggregate bigram and trigram frequencies
-      bigram_frequencies = calculate_bigram_frequencies(word_analyses)
-      trigram_frequencies = calculate_trigram_frequencies(word_analyses)
-      
-      # Aggregate complexity distribution
-      complexity_distribution = calculate_complexity_distribution(word_analyses)
-      
-      # Calculate averages
-      average_complexity = word_analyses.sum(&.complexity_score).to_f32 / word_analyses.size
-      average_syllable_count = word_analyses.sum(&.syllable_count).to_f32 / word_analyses.size
-      
-      # Calculate consonant/vowel ratio
-      total_consonants = word_analyses.sum(&.consonant_count)
-      total_vowels = word_analyses.sum(&.vowel_count)
-      consonant_vowel_ratio = total_vowels > 0 ? total_consonants.to_f32 / total_vowels.to_f32 : 0.0_f32
-      
-      # Generate recommendations
-      recommended_budget = calculate_recommended_budget(average_complexity)
-      
-      # Use provided templates instead of generating recommendations
-      provided_template_patterns = syllable_templates.map(&.pattern)
-      
-      # Calculate hiatus probability from provided templates
-      recommended_hiatus_probability = calculate_hiatus_probability_from_templates(syllable_templates)
-      
-      recommended_gemination_probability = calculate_recommended_gemination_probability(gemination_patterns, word_analyses)
-      dominant_patterns = calculate_dominant_patterns(syllable_pattern_distribution)
-      
-      Analysis.new(
-        phoneme_frequencies: phoneme_frequencies,
-        positional_frequencies: positional_frequencies,
-        syllable_count_distribution: syllable_count_distribution,
-        syllable_pattern_distribution: syllable_pattern_distribution,
-        cluster_patterns: cluster_patterns,
-        hiatus_patterns: hiatus_patterns,
-        complexity_distribution: complexity_distribution,
-        average_complexity: average_complexity,
-        average_syllable_count: average_syllable_count,
-        consonant_vowel_ratio: consonant_vowel_ratio,
-        recommended_budget: recommended_budget,
-        recommended_templates: provided_template_patterns,
-        recommended_hiatus_probability: recommended_hiatus_probability,
-        recommended_gemination_probability: recommended_gemination_probability,
-        dominant_patterns: dominant_patterns,
-        vowel_transitions: vowel_transitions,
-        gemination_patterns: gemination_patterns,
-        vowel_lengthening_patterns: vowel_lengthening_patterns,
-        phoneme_transitions: phoneme_transitions,
-        bigram_frequencies: bigram_frequencies,
-        trigram_frequencies: trigram_frequencies,
-        provided_templates: syllable_templates
-      )
-    end
 
     # Calculates phoneme frequencies across all words.
     #
@@ -266,6 +216,64 @@ module WordMage
       end
       
       frequencies
+    end
+
+    # Calculates Gusein-Zade smoothed phoneme frequencies.
+    #
+    # This method combines empirical frequencies with theoretical Gusein-Zade
+    # distribution to create more naturalistic frequency patterns.
+    #
+    # ## Parameters
+    # - `word_analyses`: Array of WordAnalysis instances
+    # - `smoothing_factor`: Weight of Gusein-Zade vs empirical (0.0-1.0, default: 0.3)
+    #
+    # ## Returns
+    # Hash mapping phonemes to their smoothed frequencies
+    private def calculate_gusein_zade_smoothed_frequencies(word_analyses : Array(WordAnalysis), smoothing_factor : Float32 = 0.3_f32) : Hash(String, Float32)
+      # First get empirical frequencies
+      empirical_frequencies = calculate_phoneme_frequencies(word_analyses)
+      return empirical_frequencies if empirical_frequencies.empty?
+      
+      # Sort phonemes by empirical frequency (highest first)
+      sorted_phonemes = empirical_frequencies.to_a
+        .sort_by { |_, freq| -freq }
+        .map { |phoneme, _| phoneme }
+      
+      n = sorted_phonemes.size
+      
+      # Calculate raw Gusein-Zade weights
+      raw_weights = [] of Float32
+      (1..n).each do |r|
+        weight = Math.log(n + 1) - Math.log(r)
+        raw_weights << weight.to_f32
+      end
+      
+      # Normalize Gusein-Zade weights to sum to 1.0
+      total_weight = raw_weights.sum
+      return empirical_frequencies if total_weight <= 0
+      
+      gusein_zade_weights = Hash(String, Float32).new
+      sorted_phonemes.each_with_index do |phoneme, i|
+        gusein_zade_weights[phoneme] = raw_weights[i] / total_weight
+      end
+      
+      # Combine empirical and theoretical frequencies
+      smoothed = Hash(String, Float32).new
+      smoothing_factor = [[smoothing_factor, 0.0_f32].max, 1.0_f32].min
+      
+      empirical_frequencies.each do |phoneme, empirical_freq|
+        gusein_zade_weight = gusein_zade_weights[phoneme]? || 0.0_f32
+        smoothed[phoneme] = (1.0_f32 - smoothing_factor) * empirical_freq + 
+                           smoothing_factor * gusein_zade_weight
+      end
+      
+      # Normalize to ensure sum is 1.0
+      total = smoothed.values.sum
+      if total > 0
+        smoothed.each { |k, v| smoothed[k] = v / total }
+      end
+      
+      smoothed
     end
 
     # Calculates positional frequencies for each phoneme.

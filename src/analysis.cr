@@ -484,6 +484,158 @@ module WordMage
       entropy
     end
 
+    # Calculates Gusein-Zade distribution weights for phonemes.
+    #
+    # The Gusein-Zade formula: pr = C.(ln(n + 1) - ln r)
+    # where n = total phonemes, r = rank, C = normalization constant
+    #
+    # ## Parameters
+    # - `phonemes`: Array of phoneme strings to weight (optional, uses all if not provided)
+    #
+    # ## Returns
+    # Hash mapping phonemes to their Gusein-Zade weights
+    def gusein_zade_weights(phonemes : Array(String)? = nil) : Hash(String, Float32)
+      target_phonemes = phonemes || @phoneme_frequencies.keys
+      return Hash(String, Float32).new if target_phonemes.empty?
+      
+      # Sort phonemes by empirical frequency (highest first)
+      sorted_phonemes = target_phonemes.sort_by { |p| -(@phoneme_frequencies[p]? || 0.0_f32) }
+      
+      n = sorted_phonemes.size
+      weights = Hash(String, Float32).new
+      
+      # Calculate raw Gusein-Zade weights
+      raw_weights = [] of Float32
+      (1..n).each do |r|
+        weight = Math.log(n + 1) - Math.log(r)
+        raw_weights << weight.to_f32
+      end
+      
+      # Normalize weights to sum to 1.0
+      total_weight = raw_weights.sum
+      return Hash(String, Float32).new if total_weight <= 0
+      
+      sorted_phonemes.each_with_index do |phoneme, i|
+        weights[phoneme] = raw_weights[i] / total_weight
+      end
+      
+      weights
+    end
+
+    # Generates smoothed phoneme frequencies using Gusein-Zade distribution.
+    #
+    # Combines empirical frequencies with theoretical Gusein-Zade weights
+    # to create more naturalistic frequency distributions.
+    #
+    # ## Parameters
+    # - `smoothing_factor`: Weight of Gusein-Zade vs empirical (0.0-1.0, default: 0.3)
+    # - `phonemes`: Array of phoneme strings to smooth (optional, uses all if not provided)
+    #
+    # ## Returns
+    # Hash mapping phonemes to their smoothed frequencies
+    def smoothed_phoneme_frequencies(smoothing_factor : Float32 = 0.3_f32, phonemes : Array(String)? = nil) : Hash(String, Float32)
+      target_phonemes = phonemes || @phoneme_frequencies.keys
+      return Hash(String, Float32).new if target_phonemes.empty?
+      
+      # Clamp smoothing factor
+      smoothing_factor = [[smoothing_factor, 0.0_f32].max, 1.0_f32].min
+      
+      # Get Gusein-Zade weights
+      gusein_zade = gusein_zade_weights(target_phonemes)
+      
+      # Combine empirical and theoretical frequencies
+      smoothed = Hash(String, Float32).new
+      target_phonemes.each do |phoneme|
+        empirical_freq = @phoneme_frequencies[phoneme]? || 0.0_f32
+        gusein_zade_weight = gusein_zade[phoneme]? || 0.0_f32
+        
+        smoothed[phoneme] = (1.0_f32 - smoothing_factor) * empirical_freq + 
+                           smoothing_factor * gusein_zade_weight
+      end
+      
+      # Normalize to ensure sum is 1.0
+      total = smoothed.values.sum
+      if total > 0
+        smoothed.each { |k, v| smoothed[k] = v / total }
+      end
+      
+      smoothed
+    end
+
+    # Returns phonemes ranked by their empirical frequency.
+    #
+    # ## Returns
+    # Array of phoneme strings ordered by frequency (highest first)
+    def phoneme_frequency_ranking : Array(String)
+      @phoneme_frequencies.to_a
+        .sort_by { |_, freq| -freq }
+        .map { |phoneme, _| phoneme }
+    end
+
+    # Calculates the rank of a phoneme in the frequency distribution.
+    #
+    # ## Parameters
+    # - `phoneme`: The phoneme to rank
+    #
+    # ## Returns
+    # Int32 rank (1-based) or 0 if phoneme not found
+    def phoneme_rank(phoneme : String) : Int32
+      ranking = phoneme_frequency_ranking
+      index = ranking.index(phoneme)
+      index ? index + 1 : 0
+    end
+
+    # Compares empirical frequencies with Gusein-Zade predictions.
+    #
+    # ## Returns
+    # Hash with deviation metrics between empirical and theoretical frequencies
+    def gusein_zade_deviation : Hash(String, Float32)
+      return Hash(String, Float32).new if @phoneme_frequencies.empty?
+      
+      gusein_zade = gusein_zade_weights
+      
+      # Calculate mean squared error
+      mse = 0.0_f32
+      phonemes = @phoneme_frequencies.keys
+      
+      phonemes.each do |phoneme|
+        empirical = @phoneme_frequencies[phoneme]
+        predicted = gusein_zade[phoneme]? || 0.0_f32
+        mse += (empirical - predicted) ** 2
+      end
+      
+      mse /= phonemes.size
+      
+      # Calculate correlation coefficient
+      empirical_values = phonemes.map { |p| @phoneme_frequencies[p] }
+      predicted_values = phonemes.map { |p| gusein_zade[p]? || 0.0_f32 }
+      
+      correlation = calculate_correlation(empirical_values, predicted_values)
+      
+      {
+        "mse" => mse,
+        "rmse" => Math.sqrt(mse),
+        "correlation" => correlation
+      }
+    end
+
+    # Helper method to calculate correlation coefficient.
+    private def calculate_correlation(x : Array(Float32), y : Array(Float32)) : Float32
+      return 0.0_f32 if x.size != y.size || x.size < 2
+      
+      n = x.size
+      sum_x = x.sum
+      sum_y = y.sum
+      sum_x2 = x.sum { |v| v * v }
+      sum_y2 = y.sum { |v| v * v }
+      sum_xy = x.zip(y).sum { |a, b| a * b }
+      
+      numerator = n * sum_xy - sum_x * sum_y
+      denominator = Math.sqrt((n * sum_x2 - sum_x * sum_x) * (n * sum_y2 - sum_y * sum_y))
+      
+      denominator != 0 ? numerator / denominator : 0.0_f32
+    end
+
     # Validates the analysis data for consistency.
     #
     # ## Returns

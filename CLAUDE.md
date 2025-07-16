@@ -88,9 +88,9 @@ The library follows a clean separation of concerns:
 
 ### Analysis & Detection
 11. **WordAnalyzer** - Analyzes individual words for phonological features
-12. **Analyzer** - Performs aggregate analysis across word collections
+12. **Analyzer** - Performs aggregate analysis across word collections with chainable API and Gusein-Zade smoothing
 13. **WordAnalysis** - Data structure containing individual word metrics
-14. **Analysis** - Data structure containing aggregate statistics and recommendations
+14. **Analysis** - Data structure containing aggregate statistics, recommendations, and Gusein-Zade analysis
 15. **VowelHarmony** - Implements vowel harmony constraint systems
 
 ## Test Structure
@@ -198,6 +198,38 @@ puts analysis.recommended_budget       # 8
 puts analysis.recommended_gemination_probability # 0.25
 ```
 
+### New Chainable Analysis API & Gusein-Zade Smoothing
+```crystal
+# Basic analysis (unchanged)
+analysis = analyzer.analyze(words)
+
+# Analysis with Gusein-Zade smoothing for more naturalistic frequencies
+analysis = analyzer.analyze(words, true, 0.3_f32)  # 30% smoothing
+
+# Analysis with templates using chainable API
+templates = [
+  WordMage::SyllableTemplate.new("CV"),
+  WordMage::SyllableTemplate.new("CVC"),
+  WordMage::SyllableTemplate.new("CCV", allowed_clusters: ["pr", "tr"])
+]
+analysis = analyzer.with_templates(templates).analyze(words)
+
+# Analysis with both templates and Gusein-Zade smoothing
+analysis = analyzer.with_templates(templates).analyze(words, true, 0.4_f32)
+
+# Reusing analyzer with different configurations
+analyzer_cv = analyzer.with_templates([WordMage::SyllableTemplate.new("CV")])
+analysis1 = analyzer_cv.analyze(words)
+analysis2 = analyzer_cv.analyze(words, true, 0.2_f32)
+
+# Gusein-Zade analysis methods
+weights = analysis.gusein_zade_weights           # Theoretical frequency weights
+smoothed = analysis.smoothed_phoneme_frequencies # Empirical + theoretical blend
+ranking = analysis.phoneme_frequency_ranking     # Phonemes by frequency
+deviation = analysis.gusein_zade_deviation       # Model fit metrics
+puts deviation["correlation"]  # How well empirical data fits Gusein-Zade model
+```
+
 ### Analysis-Driven Generation
 ```crystal
 # Generate words based on analysis of existing words
@@ -246,5 +278,7 @@ crystal run example.cr  # Run comprehensive examples
 - **Constraint-aware**: Multiple constraints work together harmoniously
 - **Input-flexible**: Methods accept both IPA strings and Phoneme instances for maximum convenience
 - **Romanization-aware**: Clusters and sequences use romanized forms, not IPA symbols
+- **Linguistically-grounded**: Gusein-Zade formula provides theoretically sound frequency distributions
+- **Chainable**: Fluent API allows composing analysis configurations with method chaining
 
-The library is designed to be both powerful for complex conlang needs and simple for basic word generation tasks. With the enhanced IPA phoneme system, comprehensive n-gram analysis, contextual generation, and pattern-based probabilities, it can handle sophisticated linguistic requirements while maintaining ease of use. The analysis-driven approach allows generating words that match the phonological patterns of existing languages or word sets.
+The library is designed to be both powerful for complex conlang needs and simple for basic word generation tasks. With the enhanced IPA phoneme system, comprehensive n-gram analysis, contextual generation, pattern-based probabilities, and Gusein-Zade smoothing, it can handle sophisticated linguistic requirements while maintaining ease of use. The chainable analysis API and analysis-driven approach allow generating words that match the phonological patterns of existing languages or word sets with theoretically grounded frequency distributions.

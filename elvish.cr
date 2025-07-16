@@ -151,7 +151,9 @@ explicit_templates = [
 # Analyze using explicit templates instead of auto-generated ones
 romanization_map = WordMage::RomanizationMap.new(romanization)
 explicit_analyzer = WordMage::Analyzer.new(romanization_map)
-explicit_analysis = explicit_analyzer.analyze(target_words, explicit_templates)
+explicit_analysis = explicit_analyzer
+  .with_templates(explicit_templates)
+  .analyze(target_words, true, 0.3_f32)
 
 puts "\n### Explicit Template Analysis Results"
 puts "Provided templates: #{explicit_analysis.provided_templates.not_nil!.map(&.pattern).join(", ")}"
