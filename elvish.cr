@@ -83,7 +83,7 @@ coda_clusters = ["n", "s", "r", "ml", "rv", "vl", "lv", "rs", "rz", "sl", "fl", 
 # Simplified syllable templates for more elegant words
 cluster_template = WordMage::SyllableTemplate.new("CCV", 
   allowed_clusters: onset_clusters,
-  hiatus_probability: 0.1_f32  # Reduced hiatus
+  hiatus_probability: 0.1_f32
 )
 
 # Simple coda template - single consonant endings
@@ -94,11 +94,16 @@ coda_template = WordMage::SyllableTemplate.new("CVC",
 
 # Main CV template - most common pattern
 regular_template = WordMage::SyllableTemplate.new("CV", 
-  hiatus_probability: 0.1_f32  # Moderate hiatus for flow
+  hiatus_probability: 0.1_f32
 )
 
 # Vowel template for elegant transitions
 vowel_template = WordMage::SyllableTemplate.new("V",
+  hiatus_probability: 0.1_f32
+)
+
+# Nasal template for words ending in nasals (common in Elvish)
+nasal_template = WordMage::SyllableTemplate.new("CVN", 
   hiatus_probability: 0.1_f32
 )
 
@@ -132,12 +137,14 @@ puts "Gemination patterns: #{analysis.gemination_patterns.to_pretty_json}"
 puts "Vowel lengthening patterns: #{analysis.vowel_lengthening_patterns.to_pretty_json}"
 
 puts "\n### Creating Generator from Analysis (with explicit templates)"
+
 # Define explicit templates with user-defined clusters
 explicit_templates = [
   regular_template,   # CV patterns - most common
   vowel_template,     # V patterns for flow
   cluster_template,   # CCV with flowing onset clusters: ["tr", "gr", "thr", "dr"]
-  coda_template       # CVC with simple codas: ["n", "s", "r"]
+  coda_template,      # CVC with simple codas: ["n", "s", "r"]
+  nasal_template      # CVN with nasal endings: ["m", "n", "ny"]
 ]
 
 # Analyze using explicit templates instead of auto-generated ones
@@ -150,9 +157,13 @@ puts "Provided templates: #{explicit_analysis.provided_templates.not_nil!.map(&.
 puts "Recommended hiatus probability: #{explicit_analysis.recommended_hiatus_probability.round(3)}"
 puts "Template-based analysis preserves user-defined clusters while detecting patterns"
 
+# Add nasals as a custom group for patterns like CVN, NVC
 analyzed_generator = WordMage::GeneratorBuilder.create
-  .with_phonemes(["b", "d", "f", "g", "k", "l", "m", "n", "p", "r", "s", "t", "v", "z", "ɲ", "ʒ", "θ"], 
-                 ["i", "u", "y", "ɑ", "ɔ", "ɛ"])
+  .with_phonemes({
+    'C' => ["b", "d", "f", "g", "k", "l", "m", "n", "p", "r", "s", "t", "v", "z", "ɲ", "ʒ", "θ"],
+    'V' => ["i", "u", "y", "ɑ", "ɔ", "ɛ"],
+    'N' => ["m", "n", "ɲ"]
+  })
   .with_romanization(romanization)
   .with_syllable_templates(explicit_templates)  # Use the explicit templates with cluster constraints
   .with_analysis(explicit_analysis, analysis_weight_factor: 1000.0_f32)
@@ -161,7 +172,7 @@ analyzed_generator = WordMage::GeneratorBuilder.create
   .with_gemination_probability(0.1_f32)
   .with_vowel_lengthening_probability(0.1_f32)
 
-  .with_complexity_budget(0)
+  .with_complexity_budget(6)
 
   .with_cluster_cost(4)           # Make clusters more expensive
   .with_hiatus_cost(2)            # Make hiatus cheaper

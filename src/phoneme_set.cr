@@ -34,6 +34,58 @@ module WordMage
       @weights = Hash(IPA::Phoneme, Float32).new
     end
 
+    # Creates a new PhonemeSet with grouped phonemes.
+    # Accepts a hash mapping group symbols to arrays of phonemes.
+    #
+    # ## Parameters
+    # - `groups`: Hash mapping group symbols to phoneme arrays
+    #   - 'C': Required consonant group
+    #   - 'V': Required vowel group  
+    #   - Any other char: Custom phoneme groups
+    #
+    # ## Example
+    # ```crystal
+    # groups = {
+    #   'C' => ["p", "t", "k", "b", "d", "g"],
+    #   'V' => ["a", "e", "i", "o", "u"],
+    #   'F' => ["f", "s", "θ"],  # Fricatives
+    #   'N' => ["m", "n", "ɲ"]   # Nasals
+    # }
+    # phonemes = PhonemeSet.new(groups)
+    # ```
+    #
+    # ## Raises
+    # ArgumentError if 'C' or 'V' groups are missing
+    def initialize(groups : Hash(Char, Array(String | IPA::Phoneme)))
+      # Validate that C and V groups are provided
+      unless groups.has_key?('C')
+        raise ArgumentError.new("Consonant group 'C' is required")
+      end
+      unless groups.has_key?('V')
+        raise ArgumentError.new("Vowel group 'V' is required")
+      end
+      
+      @consonants = Set(IPA::Phoneme).new
+      @vowels = Set(IPA::Phoneme).new
+      @custom_groups = Hash(Char, Set(IPA::Phoneme)).new
+      @position_rules = Hash(Symbol, Set(IPA::Phoneme)).new
+      @weights = Hash(IPA::Phoneme, Float32).new
+      
+      groups.each do |symbol, phonemes|
+        case symbol
+        when 'C'
+          # Add to consonants
+          @consonants = resolve_phonemes(phonemes).to_set
+        when 'V'
+          # Add to vowels
+          @vowels = resolve_phonemes(phonemes).to_set
+        else
+          # Add as custom group
+          @custom_groups[symbol] = resolve_phonemes(phonemes).to_set
+        end
+      end
+    end
+
     # Backward compatibility constructor for string arrays
     def initialize(consonants : Array(String), vowels : Array(String))
       @consonants = resolve_phonemes(consonants.map(&.as(String | IPA::Phoneme))).to_set

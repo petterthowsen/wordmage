@@ -77,6 +77,15 @@ module WordMage
       self
     end
 
+    # Sets the phonemes by group i:E {'C' => ["b", "p"...], ...}
+    #
+    # ## Returns
+    # Self for method chaining
+    def with_phonemes(grouped_phonemes : Hash(Char, Array(String | IPA::Phoneme)))
+      @phoneme_set = PhonemeSet.new(grouped_phonemes)
+      self
+    end
+
     # Adds weights to phonemes for weighted sampling.
     #
     # ## Parameters
