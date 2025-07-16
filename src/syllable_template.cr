@@ -26,6 +26,8 @@ module WordMage
     property pattern : String
     property constraints : Array(String)
     property hiatus_probability : Float32
+    property gemination_probability : Float32
+    property vowel_lengthening_probability : Float32
     property position_weights : Hash(Symbol, Float32)
     property allowed_clusters : Array(String)?
     property allowed_coda_clusters : Array(String)?
@@ -37,11 +39,13 @@ module WordMage
     # - `pattern`: Pattern string (e.g., "CV", "CVC", "CCV", "CVCC")
     # - `constraints`: Regex patterns that syllables must NOT match
     # - `hiatus_probability`: Chance (0.0-1.0) that V becomes VV
+    # - `gemination_probability`: Chance (0.0-1.0) for consonant doubling in this template
+    # - `vowel_lengthening_probability`: Chance (0.0-1.0) for vowel doubling in this template
     # - `position_weights`: Weights for using this template at different positions
     # - `allowed_clusters`: Specific onset clusters allowed for CC patterns (optional, in romanized form)
     # - `allowed_coda_clusters`: Specific coda clusters allowed for CC at end (optional, in romanized form)
     # - `probability`: Relative weight for selecting this template (default 1.0)
-    def initialize(@pattern : String, @constraints : Array(String) = [] of String, @hiatus_probability : Float32 = 0.0_f32, @position_weights : Hash(Symbol, Float32) = Hash(Symbol, Float32).new, @allowed_clusters : Array(String)? = nil, @allowed_coda_clusters : Array(String)? = nil, @probability : Float32 = 1.0_f32)
+    def initialize(@pattern : String, @constraints : Array(String) = [] of String, @hiatus_probability : Float32 = 0.0_f32, @gemination_probability : Float32 = 0.0_f32, @vowel_lengthening_probability : Float32 = 0.0_f32, @position_weights : Hash(Symbol, Float32) = Hash(Symbol, Float32).new, @allowed_clusters : Array(String)? = nil, @allowed_coda_clusters : Array(String)? = nil, @probability : Float32 = 1.0_f32)
     end
 
     # Generates a syllable using this template.

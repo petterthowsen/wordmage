@@ -104,7 +104,8 @@ vowel_template = WordMage::SyllableTemplate.new("V",
 
 # Nasal template for words ending in nasals (common in Elvish)
 nasal_template = WordMage::SyllableTemplate.new("CVN", 
-  hiatus_probability: 0.1_f32
+  hiatus_probability: 0.1_f32,
+  gemination_probability: 0,
 )
 
 # Analyze the target words
@@ -160,7 +161,7 @@ puts "Template-based analysis preserves user-defined clusters while detecting pa
 # Add nasals as a custom group for patterns like CVN, NVC
 analyzed_generator = WordMage::GeneratorBuilder.create
   .with_phonemes({
-    'C' => ["b", "d", "f", "g", "k", "l", "m", "n", "p", "r", "s", "t", "v", "z", "ɲ", "ʒ", "θ"],
+    'C' => ["b", "d", "f", "g", "k", "l", "p", "r", "s", "t", "v", "z", "ʒ", "θ"],
     'V' => ["i", "u", "y", "ɑ", "ɔ", "ɛ"],
     'N' => ["m", "n", "ɲ"]
   })
