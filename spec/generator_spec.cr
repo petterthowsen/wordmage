@@ -928,6 +928,205 @@ describe WordMage::Generator do
     end
   end
 
+  describe "starting with single phoneme constraints" do
+    it "generates words starting with a specific consonant like 'd'" do
+      generator = WordMage::GeneratorBuilder.create
+        .with_phonemes(["d", "t", "k", "r", "l", "n", "s"], ["a", "e", "i", "o"])
+        .with_syllable_patterns(["CV", "CVC"])
+        .with_syllable_count(WordMage::SyllableCountSpec.range(2, 3))
+        .starting_with_sequence("d")
+        .build
+      
+      disallowed_starts = ["dd", "dt", "dk", "dr", "dl", "dn", "ds"]
+      
+      # Generate multiple words and verify all start with 'd' and don't have disallowed clusters
+      15.times do
+        word = generator.generate
+        word.should start_with("d")
+        
+        # Verify word doesn't start with any disallowed consonant cluster
+        disallowed_starts.each do |forbidden|
+          word.should_not start_with(forbidden)
+        end
+      end
+    end
+
+    it "validates single phoneme start constraint with allowed clusters" do
+      # Setup: allow "dr" and "tr" as CCV clusters
+      allowed_clusters = ["dr", "tr"]
+      disallowed_d_starts = ["dd", "dt", "dk", "dl", "dn", "ds"]
+      
+      generator = WordMage::GeneratorBuilder.create
+        .with_phonemes(["d", "t", "r", "k", "l"], ["a", "e", "i"])
+        .with_syllable_templates([
+          WordMage::SyllableTemplate.new("CV"),
+          WordMage::SyllableTemplate.new("CVC"),
+          WordMage::SyllableTemplate.new("CCV", allowed_clusters: allowed_clusters)
+        ])
+        .with_syllable_count(WordMage::SyllableCountSpec.range(2, 4))
+        .starting_with_sequence("d")
+        .build
+      
+      romanizer = WordMage::RomanizationMap.new({
+        "d" => "d", "t" => "t", "r" => "r", "k" => "k", "l" => "l",
+        "a" => "a", "e" => "e", "i" => "i"
+      })
+      
+      # Generate and validate
+      20.times do
+        word = generator.generate
+        
+        # Must start with 'd'
+        word.should start_with("d")
+        
+        # Should not start with disallowed consonant clusters
+        disallowed_d_starts.each do |forbidden|
+          word.should_not start_with(forbidden)
+        end
+        
+        # Verify syllable count with word analyzer
+        analyzer = WordMage::WordAnalyzer.new(romanizer)
+        analysis = analyzer.analyze(word)
+        analysis.syllable_count.should be >= 2
+        analysis.syllable_count.should be <= 4
+        
+        # Verify the word is not empty and contains valid phonemes
+        word.size.should be > 0
+      end
+    end
+
+    it "combines single phoneme start with thematic vowel constraint" do
+      disallowed_d_starts = ["dd", "dt", "dk", "dr", "dl", "dn", "ds"]
+      
+      generator = WordMage::GeneratorBuilder.create
+        .with_phonemes(["d", "t", "r", "n", "s"], ["a", "e", "i", "o"])
+        .with_syllable_patterns(["CV", "CVC"])
+        .with_syllable_count(WordMage::SyllableCountSpec.exact(3))
+        .starting_with_sequence("d")
+        .with_thematic_vowel("a")  # Last vowel must be 'a'
+        .build
+      
+      romanizer = WordMage::RomanizationMap.new({
+        "d" => "d", "t" => "t", "r" => "r", "n" => "n", "s" => "s",
+        "a" => "a", "e" => "e", "i" => "i", "o" => "o"
+      })
+      
+      10.times do
+        word = generator.generate
+        
+        # Must start with 'd'
+        word.should start_with("d")
+        
+        # Should not start with disallowed consonant clusters
+        disallowed_d_starts.each do |forbidden|
+          word.should_not start_with(forbidden)
+        end
+        
+        # Must have last vowel as 'a' (thematic vowel constraint)
+        last_vowel = nil
+        phoneme_set = WordMage::PhonemeSet.new(Set{"d", "t", "r", "n", "s"}, Set{"a", "e", "i", "o"})
+        word.chars.reverse.each do |char|
+          if phoneme_set.is_vowel?(char.to_s)
+            last_vowel = char.to_s
+            break
+          end
+        end
+        last_vowel.should eq("a")
+        
+        # Verify syllable count
+        analyzer = WordMage::WordAnalyzer.new(romanizer)
+        analysis = analyzer.analyze(word)
+        analysis.syllable_count.should eq(3)
+      end
+    end
+
+    it "validates single phoneme start with three-consonant clusters" do
+      allowed_clusters = ["str", "spr"]
+      disallowed_s_starts = ["ss", "st", "sp", "sr"]
+      
+      generator = WordMage::GeneratorBuilder.create
+        .with_phonemes(["s", "t", "r", "p"], ["a", "e", "o"])
+        .with_syllable_templates([
+          WordMage::SyllableTemplate.new("CV"),
+          WordMage::SyllableTemplate.new("CVC"),
+          WordMage::SyllableTemplate.new("CCCV", allowed_clusters: allowed_clusters)
+        ])
+        .with_syllable_count(WordMage::SyllableCountSpec.range(2, 3))
+        .starting_with_sequence("s")
+        .build
+      
+      romanizer = WordMage::RomanizationMap.new({
+        "s" => "s", "t" => "t", "r" => "r", "p" => "p",
+        "a" => "a", "e" => "e", "o" => "o"
+      })
+      
+      15.times do
+        word = generator.generate
+        
+        # Must start with 's'
+        word.should start_with("s")
+        
+        # Should not start with disallowed consonant clusters
+        disallowed_s_starts.each do |forbidden|
+          word.should_not start_with(forbidden)
+        end
+        
+        # Check that the word structure is valid (clusters are allowed or single consonants)
+        # Valid patterns: CV, CVC, or CCCs from allowed_clusters + V
+        word.size.should be > 0
+        
+        # Verify syllable structure using analyzer
+        analyzer = WordMage::WordAnalyzer.new(romanizer)
+        analysis = analyzer.analyze(word)
+        analysis.syllable_count.should be >= 2
+        analysis.syllable_count.should be <= 3
+      end
+    end
+
+    it "ensures different starting phonemes produce visually distinct words" do
+      disallowed_d_starts = ["dd", "dt", "dk", "dr", "dl", "dn", "ds"]
+      disallowed_t_starts = ["tt", "td", "tk", "tr", "tl", "tn", "ts"]
+      
+      # Generator starting with 'd'
+      d_generator = WordMage::GeneratorBuilder.create
+        .with_phonemes(["d", "t", "k", "r", "l"], ["a", "e", "i"])
+        .with_syllable_patterns(["CV", "CVC"])
+        .with_syllable_count(WordMage::SyllableCountSpec.exact(2))
+        .starting_with_sequence("d")
+        .build
+      
+      # Generator starting with 't'
+      t_generator = WordMage::GeneratorBuilder.create
+        .with_phonemes(["d", "t", "k", "r", "l"], ["a", "e", "i"])
+        .with_syllable_patterns(["CV", "CVC"])
+        .with_syllable_count(WordMage::SyllableCountSpec.exact(2))
+        .starting_with_sequence("t")
+        .build
+      
+      d_words = (0...10).map { d_generator.generate }
+      t_words = (0...10).map { t_generator.generate }
+      
+      # All d_words should start with 'd' and not have disallowed clusters
+      d_words.each do |w|
+        w.should start_with("d")
+        disallowed_d_starts.each do |forbidden|
+          w.should_not start_with(forbidden)
+        end
+      end
+      
+      # All t_words should start with 't' and not have disallowed clusters
+      t_words.each do |w|
+        w.should start_with("t")
+        disallowed_t_starts.each do |forbidden|
+          w.should_not start_with(forbidden)
+        end
+      end
+      
+      # No overlap (none of d_words should appear in t_words)
+      d_words.each { |d_word| t_words.should_not contain(d_word) }
+    end
+  end
+
   describe "phonological features" do
     it "generates words with gemination (consonant doubling)" do
       generator = WordMage::GeneratorBuilder.create

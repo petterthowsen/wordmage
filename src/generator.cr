@@ -417,7 +417,7 @@ module WordMage
         syllable_count_valid = actual_syllable_count == original_syllable_count
       end
       
-      if @word_spec.validate_word(phonemes, @romanizer) && matches_starting_type_override?(phonemes, starting_type) && !has_syllable_boundary_gemination?(syllables) && !has_excessive_vowel_sequences?(phonemes) && !has_vowel_gemination?(phonemes) && syllable_count_valid
+      if @word_spec.validate_word(phonemes, @romanizer) && matches_starting_type_override?(phonemes, starting_type) && !has_syllable_boundary_gemination?(syllables) && !has_excessive_vowel_sequences?(phonemes) && ((@vowel_lengthening_probability > 0.0) || !has_vowel_gemination?(phonemes)) && syllable_count_valid
         romanized_word
       else
         generate_with_complexity_budget_with_retries(syllable_count, starting_type, initial_budget, 0, original_syllable_count) # Retry with limit
@@ -543,7 +543,7 @@ module WordMage
         syllable_count_valid = true
       end
       
-      if @word_spec.validate_word(phonemes, @romanizer) && matches_starting_type_override?(phonemes, starting_type) && !has_syllable_boundary_gemination?(syllables) && !has_excessive_vowel_sequences?(phonemes) && !has_vowel_gemination?(phonemes) && syllable_count_valid
+      if @word_spec.validate_word(phonemes, @romanizer) && matches_starting_type_override?(phonemes, starting_type) && !has_syllable_boundary_gemination?(syllables) && !has_excessive_vowel_sequences?(phonemes) && ((@vowel_lengthening_probability > 0.0) || !has_vowel_gemination?(phonemes)) && syllable_count_valid
         romanized_word
       else
         generate_with_complexity_budget_with_retries(syllable_count, starting_type, initial_budget, retries + 1, original_syllable_count)
@@ -597,6 +597,22 @@ module WordMage
 
       phonemes = syllables.flatten
 
+      # Apply gemination if enabled (global or syllable-level)
+      if @gemination_probability > 0.0 || syllables.any? { |s| 
+        template = get_template_for_syllable(s)
+        template && template.gemination_probability > 0.0
+      }
+        phonemes = apply_gemination_with_templates(phonemes, syllables)
+      end
+
+      # Apply vowel lengthening if enabled (global or syllable-level)
+      if @vowel_lengthening_probability > 0.0 || syllables.any? { |s| 
+        template = get_template_for_syllable(s)
+        template && template.vowel_lengthening_probability > 0.0
+      }
+        phonemes = apply_vowel_lengthening_with_templates(phonemes, syllables)
+      end
+
       # Check word-level constraints, starting type, and phonological issues
       # Also verify the actual syllable count matches the target
       romanized_word = @romanizer.romanize(phonemes)
@@ -611,7 +627,7 @@ module WordMage
         syllable_count_valid = true
       end
       
-      if @word_spec.validate_word(phonemes, @romanizer) && matches_starting_type_override?(phonemes, starting_type) && !has_syllable_boundary_gemination?(syllables) && !has_excessive_vowel_sequences?(phonemes) && syllable_count_valid
+      if @word_spec.validate_word(phonemes, @romanizer) && matches_starting_type_override?(phonemes, starting_type) && !has_syllable_boundary_gemination?(syllables) && !has_excessive_vowel_sequences?(phonemes) && ((@vowel_lengthening_probability > 0.0) || !has_vowel_gemination?(phonemes)) && syllable_count_valid
         romanized_word
       else
         # Add retry limit to prevent infinite recursion
@@ -935,7 +951,6 @@ module WordMage
       i = 0
       syllable_index = 0
       syllable_position = 0
-      
       while i < phonemes.size
         current_phoneme = phonemes[i]
         result << current_phoneme
@@ -949,7 +964,8 @@ module WordMage
           
           # Get template-specific probability if available
           template = current_syllable ? get_template_for_syllable(current_syllable) : nil
-          template_prob = template ? template.gemination_probability : 1.0_f32
+          # Only use template probability if it's explicitly set (> 0), otherwise use 1.0 (pass through global)
+          template_prob = (template && template.gemination_probability > 0.0) ? template.gemination_probability : 1.0_f32
           
           # Multiply global probability by template probability
           effective_prob = @gemination_probability * template_prob
@@ -957,7 +973,8 @@ module WordMage
           # Calculate enhanced probability for this specific consonant
           gemination_prob = calculate_gemination_probability_with_base(current_phoneme, effective_prob)
           
-          if Random.rand < gemination_prob
+          rand_val = Random.rand
+          if rand_val < gemination_prob
             # Add the geminated consonant
             result << current_phoneme
           end
@@ -1000,7 +1017,8 @@ module WordMage
           
           # Get template-specific probability if available
           template = current_syllable ? get_template_for_syllable(current_syllable) : nil
-          template_prob = template ? template.vowel_lengthening_probability : 1.0_f32
+          # Only use template probability if it's explicitly set (> 0), otherwise use 1.0 (pass through global)
+          template_prob = (template && template.vowel_lengthening_probability > 0.0) ? template.vowel_lengthening_probability : 1.0_f32
           
           # Multiply global probability by template probability
           effective_prob = @vowel_lengthening_probability * template_prob
@@ -1155,7 +1173,7 @@ module WordMage
       end
       
       # Validate and retry if needed
-      if template.validate(syllable) && !has_vowel_gemination_in_syllable?(syllable)
+      if template.validate(syllable) && ((@vowel_lengthening_probability > 0.0) || !has_vowel_gemination_in_syllable?(syllable))
         syllable
       else
         template.generate(@phoneme_set, position, @romanizer)  # Fallback to normal generation
