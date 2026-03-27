@@ -30,6 +30,8 @@ module WordMage
   # batch = generator.generate_batch(10)
   # ```
   class Generator
+    Log = ::Log.for(self)
+
     property phoneme_set : PhonemeSet
     property word_spec : WordSpec
     property romanizer : RomanizationMap
