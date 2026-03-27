@@ -298,14 +298,18 @@ module WordMage
     private def validate_starts_with(phonemes : Array(String), prefix : String, romanizer : RomanizationMap) : Bool
       # Convert romanized prefix to phonemes using the same logic as get_required_prefix
       prefix_phonemes = convert_romanization_to_phonemes(prefix, romanizer)
-      
+      Log.for("WordMage::WordSpec").info { "[WordSpec] validate_starts_with: romanized_prefix=#{prefix.inspect} prefix_phonemes=#{prefix_phonemes.inspect} word_phonemes[0..#{prefix_phonemes.size}]=#{phonemes[0, prefix_phonemes.size]?.inspect}" }
+
       # Check if word starts with the required sequence
       return false if phonemes.size < prefix_phonemes.size
-      
+
       (0...prefix_phonemes.size).each do |i|
-        return false if phonemes[i] != prefix_phonemes[i]
+        if phonemes[i] != prefix_phonemes[i]
+          Log.for("WordMage::WordSpec").info { "[WordSpec] validate_starts_with FAIL at index #{i}: word[#{i}]=#{phonemes[i].inspect} != prefix[#{i}]=#{prefix_phonemes[i].inspect}" }
+          return false
+        end
       end
-      
+
       true
     end
 

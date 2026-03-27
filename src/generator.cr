@@ -30,8 +30,6 @@ module WordMage
   # batch = generator.generate_batch(10)
   # ```
   class Generator
-    Log = ::Log.for(self)
-
     property phoneme_set : PhonemeSet
     property word_spec : WordSpec
     property romanizer : RomanizationMap
@@ -272,12 +270,20 @@ module WordMage
     end
 
     private def generate_with_syllable_count_and_starting_type(syllable_count : Int32, starting_type : Symbol?) : String
-      # Adjust syllable count for sequence constraints to account for phonetic integration
+      # Adjust syllable count for sequence constraints to account for phonetic integration.
+      # Prefixes/suffixes that contain vowels contribute syllable nuclei of their own, so
+      # we reduce the generated syllable count by the number of vowels they contain.
+      # Purely consonantal prefixes/suffixes (e.g. "d", "spr", "thr") add no syllables and
+      # must NOT reduce the count.
       adjusted_syllable_count = syllable_count
-      if (@word_spec.starts_with && !@word_spec.starts_with.not_nil!.empty?) || (@word_spec.ends_with && !@word_spec.ends_with.not_nil!.empty?)
-        # Reduce syllable count by 1 if we have sequence constraints to account for phonetic integration
-        adjusted_syllable_count = [1, syllable_count - 1].max
-        # puts "DEBUG: Adjusting syllable count from #{syllable_count} to #{adjusted_syllable_count} for sequence constraints"
+      prefix_phonemes = @word_spec.get_required_prefix(@romanizer)
+      suffix_phonemes = @word_spec.get_required_suffix(@romanizer)
+      prefix_vowels = prefix_phonemes.count { |p| @phoneme_set.is_vowel?(p) }
+      suffix_vowels = suffix_phonemes.count { |p| @phoneme_set.is_vowel?(p) }
+      total_seq_vowels = prefix_vowels + suffix_vowels
+      if total_seq_vowels > 0
+        adjusted_syllable_count = [1, syllable_count - total_seq_vowels].max
+        Log.info { "[Generator] starts_with=#{@word_spec.starts_with.inspect} ends_with=#{@word_spec.ends_with.inspect} seq_vowels=#{total_seq_vowels} => adjusted syllable_count #{syllable_count} -> #{adjusted_syllable_count}" }
       end
       
       # Use complexity budget if available
@@ -302,7 +308,8 @@ module WordMage
       # Handle starts_with and ends_with constraints
       prefix_phonemes = @word_spec.get_required_prefix(@romanizer)
       suffix_phonemes = @word_spec.get_required_suffix(@romanizer)
-      
+      Log.info { "[Generator] generate_with_complexity_budget: prefix_phonemes=#{prefix_phonemes.inspect} suffix_phonemes=#{suffix_phonemes.inspect}" }
+
       # Track prefix vowels and cost
       if !prefix_phonemes.empty?
         prefix_phonemes.each do |phoneme|
@@ -354,31 +361,34 @@ module WordMage
           # Check if prefix ends with consonant and syllable starts with consonant
           prefix_ends_with_consonant = !@phoneme_set.is_vowel?(prefix_phonemes.last)
           syllable_starts_with_consonant = !syllable.empty? && !@phoneme_set.is_vowel?(syllable.first)
-          
+          Log.info { "[Generator] budget i=0 prefix attach: syllable_before=#{syllable.inspect} prefix_ends_consonant=#{prefix_ends_with_consonant} syllable_starts_consonant=#{syllable_starts_with_consonant}" }
+
           if prefix_ends_with_consonant && syllable_starts_with_consonant
             # Invalid: consonant cluster would be too long (e.g., "thr" + "t" = "thrt")
             # Generate a vowel-initial syllable instead
             template = @word_spec.select_template(position)
             syllable = generate_vowel_initial_syllable(template, position)
+            Log.info { "[Generator] budget regenerated vowel-initial syllable: #{syllable.inspect}" }
           end
-          
+
           syllable = prefix_phonemes + syllable
+          Log.info { "[Generator] budget syllable_after_prefix=#{syllable.inspect}" }
         end
-        
+
         # Attach suffix to last syllable
         if i == syllable_count - 1 && !suffix_phonemes.empty?
           syllable = syllable + suffix_phonemes
         end
-        
+
         syllables << syllable
-        
+
         # Calculate complexity cost with hiatus escalation
         cost = calculate_syllable_cost(syllable)
         remaining_budget = [0.0_f32, remaining_budget - cost].max
-        
+
         # Track hiatus sequences for escalation
         hiatus_count += count_vowel_sequences(syllable)
-        
+
         # Track vowels used and vowel sequence
         syllable.each do |phoneme|
           if @phoneme_set.is_vowel?(phoneme)
@@ -387,11 +397,11 @@ module WordMage
           end
         end
       end
-      
+
       phonemes = syllables.flatten
 
       # Apply gemination if enabled (global or syllable-level)
-      if @gemination_probability > 0.0 || syllables.any? { |s| 
+      if @gemination_probability > 0.0 || syllables.any? { |s|
         template = get_template_for_syllable(s)
         template && template.gemination_probability > 0.0
       }
@@ -399,7 +409,7 @@ module WordMage
       end
 
       # Apply vowel lengthening if enabled (global or syllable-level)
-      if @vowel_lengthening_probability > 0.0 || syllables.any? { |s| 
+      if @vowel_lengthening_probability > 0.0 || syllables.any? { |s|
         template = get_template_for_syllable(s)
         template && template.vowel_lengthening_probability > 0.0
       }
@@ -408,7 +418,7 @@ module WordMage
 
       # Check word-level constraints, starting type, and phonological issues
       romanized_word = @romanizer.romanize(phonemes)
-      
+
       # For sequence constraints, validate actual syllable count
       syllable_count_valid = true
       if @word_spec.starts_with || @word_spec.ends_with
@@ -418,27 +428,42 @@ module WordMage
         actual_syllable_count = WordAnalyzer.new(@romanizer).analyze(romanized_word).syllable_count
         syllable_count_valid = actual_syllable_count == original_syllable_count
       end
-      
-      if @word_spec.validate_word(phonemes, @romanizer) && matches_starting_type_override?(phonemes, starting_type) && !has_syllable_boundary_gemination?(syllables) && !has_excessive_vowel_sequences?(phonemes) && ((@vowel_lengthening_probability > 0.0) || !has_vowel_gemination?(phonemes)) && syllable_count_valid
+
+      valid_word = @word_spec.validate_word(phonemes, @romanizer)
+      valid_starting = matches_starting_type_override?(phonemes, starting_type)
+      valid_no_boundary_gem = !has_syllable_boundary_gemination?(syllables)
+      valid_no_excess_vowels = !has_excessive_vowel_sequences?(phonemes)
+      valid_no_vowel_gem = (@vowel_lengthening_probability > 0.0) || !has_vowel_gemination?(phonemes)
+      valid_no_cross_cluster = !has_illegal_cross_syllable_cluster?(syllables)
+      Log.info { "[Generator] budget validate: word=#{romanized_word.inspect} validate_word=#{valid_word} starting=#{valid_starting} no_boundary_gem=#{valid_no_boundary_gem} no_excess_vowels=#{valid_no_excess_vowels} no_vowel_gem=#{valid_no_vowel_gem} no_cross_cluster=#{valid_no_cross_cluster} syllable_count_valid=#{syllable_count_valid}" }
+
+      if valid_word && valid_starting && valid_no_boundary_gem && valid_no_excess_vowels && valid_no_vowel_gem && valid_no_cross_cluster && syllable_count_valid
+        Log.info { "[Generator] budget => accepted: #{romanized_word.inspect}" }
         romanized_word
       else
+        Log.info { "[Generator] budget => rejected, retrying" }
         generate_with_complexity_budget_with_retries(syllable_count, starting_type, initial_budget, 0, original_syllable_count) # Retry with limit
       end
     end
 
     # Generate with complexity budget and retry limit
     private def generate_with_complexity_budget_with_retries(syllable_count : Int32, starting_type : Symbol?, initial_budget : Int32, retries : Int32, original_syllable_count : Int32 = syllable_count) : String
-      return generate_fallback_word if retries >= 100  # Fallback after too many retries
-      
+      if retries >= 100
+        Log.info { "[Generator] budget retries exhausted (#{retries}), falling back to generate_fallback_word (IGNORES starts_with constraint!)" }
+        return generate_fallback_word
+      end
+      Log.info { "[Generator] budget retry ##{retries}" }
+
       syllables = [] of Array(String)
       used_vowels = Set(String).new
       vowel_sequence = [] of String  # Track vowel sequence for harmony
       remaining_budget = initial_budget.to_f32
       hiatus_count = 0
-      
+
       # Handle starts_with and ends_with constraints by preparing prefix and suffix
       prefix_phonemes = @word_spec.get_required_prefix(@romanizer)
       suffix_phonemes = @word_spec.get_required_suffix(@romanizer)
+      Log.info { "[Generator] budget retry: prefix_phonemes=#{prefix_phonemes.inspect} suffix_phonemes=#{suffix_phonemes.inspect}" }
       if !prefix_phonemes.empty?
         # Track prefix vowels and consonants for harmony
         prefix_phonemes.each do |phoneme|
@@ -487,7 +512,20 @@ module WordMage
         
         # For the first syllable, prepend the prefix if it exists
         if i == 0 && !prefix_phonemes.empty?
+          prefix_ends_with_consonant = !@phoneme_set.is_vowel?(prefix_phonemes.last)
+          syllable_starts_with_consonant = !syllable.empty? && !@phoneme_set.is_vowel?(syllable.first)
+          Log.info { "[Generator] retry i=0 prefix attach: syllable_before=#{syllable.inspect} prefix_ends_consonant=#{prefix_ends_with_consonant} syllable_starts_consonant=#{syllable_starts_with_consonant}" }
+
+          if prefix_ends_with_consonant && syllable_starts_with_consonant
+            # Invalid: consonant cluster at prefix-syllable boundary
+            # Generate a vowel-initial syllable instead
+            template = @word_spec.select_template(position)
+            syllable = generate_vowel_initial_syllable(template, position)
+            Log.info { "[Generator] retry regenerated vowel-initial syllable to avoid cluster: #{syllable.inspect}" }
+          end
+
           syllable = prefix_phonemes + syllable
+          Log.info { "[Generator] retry syllable_after_prefix=#{syllable.inspect}" }
         end
         
         # For the last syllable, append the suffix if it exists
@@ -545,7 +583,16 @@ module WordMage
         syllable_count_valid = true
       end
       
-      if @word_spec.validate_word(phonemes, @romanizer) && matches_starting_type_override?(phonemes, starting_type) && !has_syllable_boundary_gemination?(syllables) && !has_excessive_vowel_sequences?(phonemes) && ((@vowel_lengthening_probability > 0.0) || !has_vowel_gemination?(phonemes)) && syllable_count_valid
+      valid_word = @word_spec.validate_word(phonemes, @romanizer)
+      valid_starting = matches_starting_type_override?(phonemes, starting_type)
+      valid_no_boundary_gem = !has_syllable_boundary_gemination?(syllables)
+      valid_no_excess_vowels = !has_excessive_vowel_sequences?(phonemes)
+      valid_no_vowel_gem = (@vowel_lengthening_probability > 0.0) || !has_vowel_gemination?(phonemes)
+      valid_no_cross_cluster = !has_illegal_cross_syllable_cluster?(syllables)
+      Log.info { "[Generator] budget retry##{retries} validate: word=#{romanized_word.inspect} validate_word=#{valid_word} starting=#{valid_starting} no_boundary_gem=#{valid_no_boundary_gem} no_excess_vowels=#{valid_no_excess_vowels} no_vowel_gem=#{valid_no_vowel_gem} no_cross_cluster=#{valid_no_cross_cluster} syllable_count_valid=#{syllable_count_valid}" }
+
+      if valid_word && valid_starting && valid_no_boundary_gem && valid_no_excess_vowels && valid_no_vowel_gem && valid_no_cross_cluster && syllable_count_valid
+        Log.info { "[Generator] budget retry##{retries} => accepted: #{romanized_word.inspect}" }
         romanized_word
       else
         generate_with_complexity_budget_with_retries(syllable_count, starting_type, initial_budget, retries + 1, original_syllable_count)
@@ -629,7 +676,7 @@ module WordMage
         syllable_count_valid = true
       end
       
-      if @word_spec.validate_word(phonemes, @romanizer) && matches_starting_type_override?(phonemes, starting_type) && !has_syllable_boundary_gemination?(syllables) && !has_excessive_vowel_sequences?(phonemes) && ((@vowel_lengthening_probability > 0.0) || !has_vowel_gemination?(phonemes)) && syllable_count_valid
+      if @word_spec.validate_word(phonemes, @romanizer) && matches_starting_type_override?(phonemes, starting_type) && !has_syllable_boundary_gemination?(syllables) && !has_excessive_vowel_sequences?(phonemes) && ((@vowel_lengthening_probability > 0.0) || !has_vowel_gemination?(phonemes)) && !has_illegal_cross_syllable_cluster?(syllables) && syllable_count_valid
         romanized_word
       else
         # Add retry limit to prevent infinite recursion
@@ -715,7 +762,7 @@ module WordMage
         syllable_count_valid = true
       end
       
-      if @word_spec.validate_word(phonemes, @romanizer) && matches_starting_type_override?(phonemes, starting_type) && !has_syllable_boundary_gemination?(syllables) && !has_excessive_vowel_sequences?(phonemes) && syllable_count_valid
+      if @word_spec.validate_word(phonemes, @romanizer) && matches_starting_type_override?(phonemes, starting_type) && !has_syllable_boundary_gemination?(syllables) && !has_excessive_vowel_sequences?(phonemes) && !has_illegal_cross_syllable_cluster?(syllables) && syllable_count_valid
         romanized_word
       else
         generate_without_complexity_budget_with_retries(syllable_count, starting_type, retries + 1, original_syllable_count)
@@ -724,14 +771,17 @@ module WordMage
 
     # Fallback word generation when constraints can't be satisfied
     private def generate_fallback_word : String
+      Log.info { "[Generator] FALLBACK WORD: starts_with=#{@word_spec.starts_with.inspect} ends_with=#{@word_spec.ends_with.inspect} — constraints IGNORED in fallback!" }
       # Generate a simple CV word as fallback
       consonants = @phoneme_set.get_consonants
       vowels = @phoneme_set.get_vowels
-      
+
       return "ka" if consonants.empty? || vowels.empty?
-      
+
       phonemes = [consonants.sample, vowels.sample]
-      @romanizer.romanize(phonemes)
+      result = @romanizer.romanize(phonemes)
+      Log.info { "[Generator] FALLBACK WORD result: #{result.inspect}" }
+      result
     end
 
     # Applies gemination (consonant doubling) to phonemes based on probability.
@@ -838,9 +888,11 @@ module WordMage
     private def generate_vowel_initial_syllable(template : SyllableTemplate, position : Symbol) : Array(String)
       # Force the syllable to start with a vowel
       vowel = sample_contextual_phoneme(:vowel, position, nil)
-      
+
       # Generate the rest of the syllable pattern after the vowel
-      remaining_pattern = template.pattern.sub(/^C*/, "")  # Remove leading consonants
+      # Strip leading consonants AND the first vowel slot (which we're filling manually)
+      remaining_pattern = template.pattern.sub(/^C*V/, "")  # Remove leading consonants and first V slot
+      Log.info { "[Generator] generate_vowel_initial_syllable: template=#{template.pattern.inspect} remaining_pattern=#{remaining_pattern.inspect}" }
       syllable = [vowel]
       
       remaining_pattern.each_char do |symbol|
@@ -1521,6 +1573,18 @@ module WordMage
         end
       end
 
+      false
+    end
+
+    # Checks if any syllable boundary creates a consonant cluster that is not in any
+    # template's allowed_clusters list. E.g. "gob"+"ky" → boundary "bk" is not an
+    # allowed onset cluster, so the word should be rejected and retried.
+    private def has_illegal_cross_syllable_cluster?(syllables : Array(Array(String))) : Bool
+      # Cross-syllable coda+onset adjacency is always phonologically valid — the coda
+      # of one syllable and the onset of the next are in different syllables and do not
+      # form a consonant cluster. Within-syllable onset cluster validation (in
+      # SyllableTemplate) already enforces allowed_clusters restrictions. Returning
+      # false unconditionally prevents false positives on normal CVC+CV words.
       false
     end
 

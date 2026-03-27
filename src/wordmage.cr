@@ -1,3 +1,4 @@
+require "log"
 require "./phoneme_set"
 require "./syllable_template"
 require "./word_spec"
@@ -12,5 +13,6 @@ require "./vowel_harmony"
 require "./IPA/ipa"
 
 module WordMage
-  VERSION = "0.9.0"
+  VERSION = "0.9.1"
+  Log = ::Log.for(self)
 end
